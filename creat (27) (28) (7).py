@@ -46,12 +46,15 @@ STARS_BOT_SCRIPT_NAME = 'stars_bot.py'
 CLICKER_BOT_SCRIPT_NAME = 'clicker_bot.py'
 ANONCHAT_BOT_SCRIPT_NAME = 'anonchatik.py'
 CASHLAIT_BOT_SCRIPT_NAME = 'cashlait_bot.py'
+DICELITE_BOT_SCRIPT_NAME = 'dicelite_bot.py'
 CLICKER_UNLOCK_CODE = '62927'
 ANONCHAT_UNLOCK_CODE = '67576'
+CASHLAIT_UNLOCK_CODE = '480034'
+DICELITE_UNLOCK_CODE = '915627'
 CLICKER_GLOBAL_SETTING_KEY = 'clicker_global_unlocked'
 ANONCHAT_GLOBAL_SETTING_KEY = 'anonchat_global_unlocked'
-CASHLAIT_UNLOCK_CODE = '480034'
 CASHLAIT_GLOBAL_SETTING_KEY = 'cashlait_global_unlocked'
+DICELITE_GLOBAL_SETTING_KEY = 'dicelite_global_unlocked'
 CUSTOMIZATION_UNLOCK_CODE = '73839'
 CUSTOMIZATION_SETTING_KEY = 'customization_unlocked'
 CUSTOM_BUTTON_SETTING_PREFIX = 'custom_button_text_'
@@ -108,6 +111,7 @@ DEFAULT_BUTTON_TEXTS = {
     'create_clicker': "🖱 Кликер",
     'create_anonchat': "💬 Анонимный чат",
     'create_cashlait': "💼 CashLait",
+    'create_dicelite': "🎲 DiceLite",
 }
 
 BUTTON_KEY_DESCRIPTIONS = {
@@ -122,6 +126,7 @@ BUTTON_KEY_DESCRIPTIONS = {
     'create_clicker': 'Кнопка выбора типа "Кликер"',
     'create_anonchat': 'Кнопка выбора типа "Анонимный чат"',
     'create_cashlait': 'Кнопка выбора типа "CashLait"',
+    'create_dicelite': 'Кнопка выбора типа "DiceLite"',
 }
 
 MAIN_MENU_BUTTON_KEYS = [
@@ -139,6 +144,7 @@ BOT_CREATION_BUTTON_KEYS = [
     'create_clicker',
     'create_anonchat',
     'create_cashlait',
+    'create_dicelite',
 ]
 CUSTOMIZATION_RESET_COMMANDS = {'сброс', 'reset', 'default', 'стандарт'}
 DB_NAME = 'creator_data2.db'
@@ -273,6 +279,9 @@ def init_db():
         if 'cashlait_unlocked' not in user_columns:
             cursor.execute("ALTER TABLE users ADD COLUMN cashlait_unlocked BOOLEAN DEFAULT FALSE")
             logging.info("Колонка 'cashlait_unlocked' добавлена в таблицу 'users'.")
+        if 'dicelite_unlocked' not in user_columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN dicelite_unlocked BOOLEAN DEFAULT FALSE")
+            logging.info("Колонка 'dicelite_unlocked' добавлена в таблицу 'users'.")
 
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS bots (
@@ -371,6 +380,9 @@ def init_db():
             'cashlait_crypto_pay_token': "TEXT",
             'cashlait_currency_symbol': "TEXT",
             'cashlait_welcome_text': "TEXT",
+            # DiceLite-specific settings
+            'dicelite_crypto_pay_token': "TEXT",
+            'dicelite_welcome_text': "TEXT",
         }
         
         for col, col_type in new_columns.items():
@@ -388,6 +400,7 @@ def init_db():
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('cashlait_price', '1.0')")
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('cashlait_task_price', '0.1')")
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('cashlait_min_completions', '10')")
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('dicelite_price', '1.0')")
         # Watermark toggle for creator welcome message (enabled by default)
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('creator_watermark_enabled', '1')")
         # Global toggle for '📋 Списки ботов' feature (enabled by default)
@@ -400,6 +413,7 @@ def init_db():
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (CLICKER_GLOBAL_SETTING_KEY, '0'))
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (ANONCHAT_GLOBAL_SETTING_KEY, '0'))
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (CASHLAIT_GLOBAL_SETTING_KEY, '0'))
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (DICELITE_GLOBAL_SETTING_KEY, '0'))
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, '0')", (CUSTOMIZATION_SETTING_KEY,))
 
         # Синхронизируем глобальный доступ к типу 'Кликер' с данными пользователей
@@ -447,6 +461,21 @@ def init_db():
         if cashlait_global_enabled:
             cursor.execute("UPDATE users SET cashlait_unlocked = 1 WHERE cashlait_unlocked IS NULL OR cashlait_unlocked = 0")
 
+        # Синхронизируем глобальный доступ к типу 'DiceLite' с данными пользователей
+        cursor.execute("SELECT value FROM settings WHERE key = ?", (DICELITE_GLOBAL_SETTING_KEY,))
+        dicelite_setting_row = cursor.fetchone()
+        dicelite_global_enabled = False
+        if dicelite_setting_row and dicelite_setting_row[0] is not None:
+            dicelite_global_enabled = str(dicelite_setting_row[0]).strip().lower() in ('1', 'true', 'yes', 'on', 'enabled')
+        cursor.execute("SELECT 1 FROM users WHERE dicelite_unlocked = 1 LIMIT 1")
+        dicelite_unlocked_exists = cursor.fetchone() is not None
+        if dicelite_unlocked_exists and not dicelite_global_enabled:
+            cursor.execute("REPLACE INTO settings (key, value) VALUES (?, '1')", (DICELITE_GLOBAL_SETTING_KEY,))
+            dicelite_global_enabled = True
+            logging.info("Глобальный доступ к типу 'DiceLite' восстановлен автоматически на основании существующих пользователей.")
+        if dicelite_global_enabled:
+            cursor.execute("UPDATE users SET dicelite_unlocked = 1 WHERE dicelite_unlocked IS NULL OR dicelite_unlocked = 0")
+
         conn.commit()
         logging.info("База данных успешно инициализирована/обновлена.")
 
@@ -470,6 +499,7 @@ def get_child_bot_user_count(bot_id, bot_type):
         'clicker': f"dbs/bot_{bot_id}_clicker_data.db",
         'anonchat': f"dbs/bot_{bot_id}_anonchat.db",
         'cashlait': f"dbs/bot_{bot_id}_cashlait.db",
+        'dicelite': f"dbs/bot_{bot_id}_dicelite.db",
     }
     db_filename = db_filename_map.get(bot_type, f"dbs/bot_{bot_id}_data.db")
     try:
@@ -499,6 +529,8 @@ def update_bot_setting(bot_id, setting_name, new_value):
         'anonchat_flyer_api_key', 'anonchat_flyer_tasks_limit',
         # CashLait-specific settings
         'cashlait_flyer_api_key', 'cashlait_crypto_pay_token', 'cashlait_currency_symbol',
+        # DiceLite-specific settings
+        'dicelite_crypto_pay_token', 'dicelite_welcome_text',
     ]
     if setting_name in allowed_settings:
         db_execute(f"UPDATE bots SET {setting_name} = ? WHERE id = ?", (new_value, bot_id), commit=True)
@@ -643,6 +675,7 @@ def get_bot_creation_button_texts():
         'clicker': get_custom_button_text('create_clicker'),
         'anonchat': get_custom_button_text('create_anonchat'),
         'cashlait': get_custom_button_text('create_cashlait'),
+        'dicelite': get_custom_button_text('create_dicelite'),
     }
 
 def is_clicker_unlocked_globally():
@@ -705,6 +738,26 @@ def unlock_cashlait_globally():
         logging.error(f"Не удалось установить глобальный доступ к CashLait: {exc}")
         raise
 
+def is_dicelite_unlocked_globally():
+    try:
+        value = get_setting(DICELITE_GLOBAL_SETTING_KEY)
+    except Exception:
+        value = None
+    if value is None:
+        return False
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on', 'enabled')
+
+def unlock_dicelite_globally():
+    try:
+        set_setting(DICELITE_GLOBAL_SETTING_KEY, '1')
+        db_execute(
+            "UPDATE users SET dicelite_unlocked = 1 WHERE dicelite_unlocked IS NULL OR dicelite_unlocked = 0",
+            commit=True
+        )
+    except Exception as exc:
+        logging.error(f"Не удалось установить глобальный доступ к DiceLite: {exc}")
+        raise
+
 def get_user(user_id, username=None):
     user = db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
     if user is None: 
@@ -750,6 +803,19 @@ def get_user(user_id, username=None):
                     commit=True
                 )
                 user = db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+
+            needs_sync_dicelite = (
+                hasattr(user, 'keys')
+                and 'dicelite_unlocked' in user.keys()
+                and user['dicelite_unlocked'] in (None, 0, '0', False)
+            )
+            if needs_sync_dicelite and is_dicelite_unlocked_globally():
+                db_execute(
+                    "UPDATE users SET dicelite_unlocked = 1 WHERE user_id = ?",
+                    (user_id,),
+                    commit=True
+                )
+                user = db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
         except Exception as exc:
             logging.error(f"Не удалось синхронизировать флаги разблокировки для пользователя {user_id}: {exc}")
     return user
@@ -781,6 +847,7 @@ def delete_bot_from_db(bot_id):
         'stars': f"dbs/bot_{bot_id}_stars_data.db",
         'clicker': f"dbs/bot_{bot_id}_clicker_data.db",
         'cashlait': f"dbs/bot_{bot_id}_cashlait.db",
+        'dicelite': f"dbs/bot_{bot_id}_dicelite.db",
     }
     db_filename = db_filename_map.get(bot_info['bot_type'])
     try:
@@ -857,6 +924,15 @@ def start_bot_process(bot_id):
                 env['CASHLAIT_CURRENCY_SYMBOL'] = bot_info['cashlait_currency_symbol']
             if bot_info['cashlait_welcome_text']:
                 env['CASHLAIT_WELCOME_TEXT'] = bot_info['cashlait_welcome_text']
+        elif bot_info['bot_type'] == 'dicelite':
+            script_name = DICELITE_BOT_SCRIPT_NAME
+            env['DICELITE_DB'] = os.path.abspath(f"dbs/bot_{bot_id}_dicelite.db")
+            if bot_info['bot_token']:
+                env['DICELITE_BOT_TOKEN'] = bot_info['bot_token']
+            if bot_info.get('dicelite_crypto_pay_token'):
+                env['DICELITE_CRYPTO_PAY_TOKEN'] = bot_info['dicelite_crypto_pay_token']
+            if bot_info.get('dicelite_welcome_text'):
+                env['DICELITE_WELCOME_TEXT'] = bot_info['dicelite_welcome_text']
         else:
             return False, "Неизвестный тип бота."
         
@@ -947,6 +1023,7 @@ def create_admin_menu():
     markup.add(types.InlineKeyboardButton("🤖 Все боты", callback_data="admin_bots_all"),
                types.InlineKeyboardButton("₽ Настройки VIP", callback_data="admin_vip_manage"))
     markup.add(types.InlineKeyboardButton("💼 CashLait", callback_data="admin_cashlait_manage"))
+    markup.add(types.InlineKeyboardButton("🎲 DiceLite", callback_data="admin_dicelite_manage"))
     markup.add(types.InlineKeyboardButton("💸 Выдать баланс", callback_data="admin_balance_add_start"),
                types.InlineKeyboardButton("🔁 Перевод с удержания", callback_data="admin_hold_transfer_start"))
     markup.add(types.InlineKeyboardButton("🔄 Перезапуск по фильтру", callback_data="admin_restart_filter_start"))
@@ -1002,6 +1079,16 @@ def create_bot_type_menu(user_id=None):
             cashlait_available = False
     if cashlait_available:
         markup.add(types.InlineKeyboardButton(creation_buttons.get('cashlait', "💼 CashLait"), callback_data="create_bot_cashlait"))
+    
+    dicelite_available = is_dicelite_unlocked_globally()
+    if not dicelite_available and user_id is not None:
+        try:
+            user = get_user(user_id)
+            dicelite_available = bool(user.get('dicelite_unlocked', False)) if user else False
+        except Exception:
+            dicelite_available = False
+    if dicelite_available:
+        markup.add(types.InlineKeyboardButton(creation_buttons.get('dicelite', "🎲 DiceLite"), callback_data="create_bot_dicelite"))
     return markup
 
 def create_my_bots_menu(user_id):
@@ -1019,6 +1106,7 @@ def create_my_bots_menu(user_id):
                 'clicker': '🖱',
                 'anonchat': '💬',
                 'cashlait': '💼',
+        'dicelite': '🎲',
             }
             bot_type_icon = type_icons.get(bot_item['bot_type'], '🎨')
             vip_icon = "⭐" if bot_item['vip_status'] else ""
@@ -1039,6 +1127,8 @@ def create_bot_actions_menu(bot_id):
     if bot_info['bot_type'] in ['ref', 'stars', 'clicker', 'anonchat', 'cashlait']:
         markup.add(types.InlineKeyboardButton("⚙️ Конфигурация", callback_data=f"config_{bot_id}"),
                    types.InlineKeyboardButton("💰 Доп. заработок (Flyer)", callback_data=f"dop_zarabotok_{bot_id}"))
+    elif bot_info['bot_type'] == 'dicelite':
+        markup.add(types.InlineKeyboardButton("⚙️ Конфигурация", callback_data=f"config_{bot_id}"))
     else:
         markup.add(types.InlineKeyboardButton("⚙️ Конфигурация", callback_data=f"config_{bot_id}"))
 
@@ -1190,6 +1280,30 @@ def create_cashlait_bot_config_menu(bot_id):
     )
     markup.add(
         types.InlineKeyboardButton("🔗 Чат поддержки", callback_data=f"edit_{bot_id}_chat_link"),
+        types.InlineKeyboardButton("👥 Админы", callback_data=f"admins_{bot_id}_manage"),
+    )
+    markup.add(types.InlineKeyboardButton("⬅️ Главное меню бота", callback_data=f"actions_{bot_id}"))
+    return markup
+
+def create_dicelite_bot_config_menu(bot_id):
+    bot_info = get_bot_by_id(bot_id)
+    if not bot_info:
+        return None
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    if bot_info['status'] == 'running':
+        markup.add(
+            types.InlineKeyboardButton("⏹️ Остановить", callback_data=f"control_{bot_id}_stop"),
+            types.InlineKeyboardButton("🔄 Перезапустить", callback_data=f"control_{bot_id}_restart"),
+        )
+    else:
+        markup.add(types.InlineKeyboardButton("▶️ Запустить", callback_data=f"control_{bot_id}_start"))
+
+    markup.add(
+        types.InlineKeyboardButton("🔑 Токен бота", callback_data=f"edit_{bot_id}_bot_token"),
+        types.InlineKeyboardButton("💳 Crypto Pay токен", callback_data=f"edit_{bot_id}_dicelite_crypto_pay_token"),
+    )
+    markup.add(
+        types.InlineKeyboardButton("👋 Приветствие", callback_data=f"edit_{bot_id}_dicelite_welcome_text"),
         types.InlineKeyboardButton("👥 Админы", callback_data=f"admins_{bot_id}_manage"),
     )
     markup.add(types.InlineKeyboardButton("⬅️ Главное меню бота", callback_data=f"actions_{bot_id}"))
@@ -2271,6 +2385,28 @@ def process_state_input(message):
             except: pass
         return
 
+    if action == 'admin_grant_dicelite':
+        try:
+            target_user_id = int(message.text)
+            bot_id = create_bot_in_db(target_user_id, 'dicelite')
+            try: bot.delete_message(user_id, state['message_id'])
+            except: pass
+            try: bot.delete_message(user_id, message.message_id)
+            except: pass
+            if user_id in user_states:
+                del user_states[user_id]
+            bot.send_message(user_id, f"✅ DiceLite бот #{bot_id} успешно выдан пользователю {target_user_id}.")
+            bot.send_message(user_id, get_custom_text('admin_menu_heading'), reply_markup=create_admin_menu())
+            try:
+                bot.send_message(target_user_id, f"🎉 Поздравляем! Администратор выдал вам DiceLite бота #{bot_id}!")
+            except Exception as e:
+                logging.warning(f"Не удалось уведомить пользователя {target_user_id} о выдаче DiceLite бота: {e}")
+        except (ValueError, TypeError):
+            bot.send_message(user_id, "❌ Ошибка. Введите корректный числовой ID пользователя.")
+            try: bot.delete_message(user_id, message.message_id)
+            except: pass
+        return
+
     if action == 'editing_setting':
         setting = state['setting']
         bot_id = state['bot_id']
@@ -2373,7 +2509,7 @@ def process_state_input(message):
         elif setting in ['anonchat_crypto_api_token', 'anonchat_flyer_api_key']:
             cleaned = '' if new_value_raw.strip() == '-' else new_value_raw.strip()
             update_bot_setting(bot_id, setting, cleaned)
-        elif setting in ['cashlait_flyer_api_key', 'cashlait_crypto_pay_token', 'cashlait_currency_symbol']:
+        elif setting in ['cashlait_flyer_api_key', 'cashlait_crypto_pay_token', 'cashlait_currency_symbol', 'dicelite_crypto_pay_token']:
             cleaned = '' if new_value_raw.strip() == '-' else new_value_raw.strip()
             update_bot_setting(bot_id, setting, cleaned)
         
@@ -2395,6 +2531,8 @@ def process_state_input(message):
             config_menu = create_anonchat_bot_config_menu(bot_id)
         elif bot_info['bot_type'] == 'cashlait':
             config_menu = create_cashlait_bot_config_menu(bot_id)
+        elif bot_info['bot_type'] == 'dicelite':
+            config_menu = create_dicelite_bot_config_menu(bot_id)
         bot.send_message(user_id, f"⚙️ Меню конфигурации бота {name}", reply_markup=config_menu)
         if error_text: bot.send_message(user_id, error_text, parse_mode="HTML")
         return
@@ -2565,6 +2703,8 @@ def process_state_input(message):
                 callback_to_return = "admin_vip_manage"
             elif setting_key in ('cashlait_price', 'cashlait_task_price', 'cashlait_min_completions'):
                 callback_to_return = "admin_cashlait_manage"
+            elif setting_key == 'dicelite_price':
+                callback_to_return = "admin_dicelite_manage"
             elif setting_key == 'bots_list_min_users':
                 callback_to_return = "admin_lists_menu"
 
@@ -2826,7 +2966,62 @@ def handle_admin_callbacks(call):
             )
             set_user_state(user_id, {'action': 'admin_grant_cashlait', 'message_id': msg.message_id, 'call_id': call.id})
             return
-    
+
+    if call.data.startswith("admin_dicelite_"):
+        bot.answer_callback_query(call.id)
+        parts = call.data.split('_')
+        sub_action = parts[2] if len(parts) > 2 else None
+
+        if sub_action == "manage":
+            if user_id in user_states:
+                del user_states[user_id]
+            dicelite_price = get_setting('dicelite_price') or '1.0'
+            markup = types.InlineKeyboardMarkup(row_width=1)
+            markup.add(types.InlineKeyboardButton(f"💰 Изменить цену DiceLite ({dicelite_price} $)", callback_data="admin_dicelite_set_price"))
+            markup.add(types.InlineKeyboardButton("🎁 Выдать DiceLite бота", callback_data="admin_dicelite_grant"))
+            markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back"))
+            try:
+                bot.edit_message_text("🎲 Управление DiceLite ботом:", user_id, call.message.message_id, reply_markup=markup)
+            except telebot.apihelper.ApiTelegramException:
+                bot.send_message(user_id, "🎲 Управление DiceLite ботом:", reply_markup=markup)
+            return
+
+        if sub_action == "set":
+            try:
+                msg = bot.edit_message_text(
+                    "💰 Введите новую цену (в $) для DiceLite:",
+                    user_id,
+                    call.message.message_id,
+                    reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_dicelite_manage"))
+                )
+            except telebot.apihelper.ApiTelegramException:
+                msg = bot.send_message(
+                    user_id,
+                    "💰 Введите новую цену (в $) для DiceLite:",
+                    reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_dicelite_manage"))
+                )
+            set_user_state(user_id, {'action': 'admin_change_setting', 'setting_key': 'dicelite_price', 'message_id': msg.message_id, 'call_id': call.id, 'message': call.message, 'min_value': 1.0})
+            return
+
+        if sub_action == "grant":
+            try:
+                msg = bot.edit_message_text(
+                    "🎁 Введите ID пользователя, которому нужно выдать DiceLite бота:",
+                    user_id,
+                    call.message.message_id,
+                    reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_dicelite_manage"))
+                )
+            except telebot.apihelper.ApiTelegramException:
+                msg = bot.send_message(
+                    user_id,
+                    "🎁 Введите ID пользователя, которому нужно выдать DiceLite бота:",
+                    reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_dicelite_manage"))
+                )
+            set_user_state(user_id, {'action': 'admin_grant_dicelite', 'message_id': msg.message_id, 'call_id': call.id})
+            return
+
+        return
+
     if call.data.startswith("admin_customization"):
         handle_admin_customization(call)
         return
@@ -3769,7 +3964,9 @@ def show_admin_bot_info(user_id, message_id, bot_id):
         'ref': 'Реферальный',
         'stars': 'Заработок Звёзд',
         'clicker': 'Кликер',
-        'anonchat': 'Анонимный чат'
+        'anonchat': 'Анонимный чат',
+        'cashlait': 'CashLait',
+        'dicelite': 'DiceLite',
     }
     bot_type_title = type_titles.get(bot_info['bot_type'], bot_info['bot_type'])
 
@@ -4236,6 +4433,28 @@ if __name__ == '__main__':
             bot.send_message(user_id, get_custom_text('create_bot_prompt'), parse_mode="HTML", reply_markup=create_bot_type_menu(user_id))
             return
 
+        # Secret code to unlock 'DiceLite' bot type for this user
+        if text_value == DICELITE_UNLOCK_CODE:
+            already_global = is_dicelite_unlocked_globally()
+            try:
+                db_execute("UPDATE users SET dicelite_unlocked = 1 WHERE user_id = ?", (user_id,), commit=True)
+            except Exception as e:
+                logging.error(f"Не удалось установить флаг dicelite_unlocked для пользователя {user_id}: {e}")
+            if not already_global:
+                try:
+                    unlock_dicelite_globally()
+                    logging.info(f"Пользователь {user_id} открыл доступ к типу 'DiceLite' для всех пользователей")
+                except Exception as e:
+                    logging.error(f"Не удалось открыть доступ к DiceLite глобально: {e}")
+            confirmation_text = (
+                "✅ Тип бота 'DiceLite' уже был доступен всем пользователям!"
+                if already_global
+                else "✅ Новый тип бота 'DiceLite' теперь доступен всем пользователям!"
+            )
+            bot.send_message(user_id, confirmation_text, parse_mode="HTML")
+            bot.send_message(user_id, get_custom_text('create_bot_prompt'), parse_mode="HTML", reply_markup=create_bot_type_menu(user_id))
+            return
+
         if text_value == CUSTOMIZATION_UNLOCK_CODE and is_admin(user_id):
             if is_customization_unlocked():
                 bot.send_message(user_id, "ℹ️ Режим кастомизации уже активирован.")
@@ -4544,7 +4763,7 @@ if __name__ == '__main__':
                     run_async_task(check_creatornew_invoice())
                 return
             
-            if call.data.startswith('cashlaitnew_check_'):
+            elif call.data.startswith('cashlaitnew_check_'):
                 parts = call.data.split('_')
                 invoice_id_to_check = int(parts[2])
                 bot.answer_callback_query(call.id, "Проверяю статус платежа...")
@@ -4568,6 +4787,38 @@ if __name__ == '__main__':
                         bot.answer_callback_query(call.id, "❌ Платеж еще не прошел или счет истек.", show_alert=True)
                 
                 run_async_task(check_cashlaitnew_invoice())
+                return
+            elif call.data.startswith('dicelitenew_check_'):
+                parts = call.data.split('_')
+                invoice_id_to_check = int(parts[2])
+                bot.answer_callback_query(call.id, "Проверяю статус платежа...")
+                async def check_dicelitenew_invoice():
+                    local_crypto = get_crypto_client()
+                    if not local_crypto:
+                        bot.answer_callback_query(call.id, "❌ Crypto Pay недоступен сейчас.", show_alert=True)
+                        return
+                    invoices = await local_crypto.get_invoices(invoice_ids=str(invoice_id_to_check))
+                    if invoices and invoices[0].status == 'paid':
+                        dicelite_bot_id = create_bot_in_db(user_id, 'dicelite')
+                        db_execute("UPDATE crypto_payments SET status = 'paid' WHERE invoice_id = ?", (invoice_id_to_check,), commit=True)
+                        bot.edit_message_text(
+                            f"✅ Оплата прошла успешно! DiceLite бот #{dicelite_bot_id} создан! Теперь он в списке ваших ботов.",
+                            user_id,
+                            call.message.message_id,
+                            reply_markup=create_my_bots_menu(user_id)
+                        )
+                        try:
+                            buyer = get_user(user_id)
+                            bot.send_message(
+                                ADMIN_ID,
+                                f"🛒 Покупка DiceLite: пользователь <code>{user_id}</code> (@{escape(buyer['username'] or 'N/A')}) оплатил счет #{invoice_id_to_check}. Создан бот #{dicelite_bot_id}.",
+                                parse_mode="HTML"
+                            )
+                        except Exception as e:
+                            logging.warning(f"Не удалось уведомить админа о покупке DiceLite: {e}")
+                    else:
+                        bot.answer_callback_query(call.id, "❌ Платеж еще не прошел или счет истек.", show_alert=True)
+                run_async_task(check_dicelitenew_invoice())
                 return
 
             if call.data.startswith('creator_'):
@@ -4787,6 +5038,39 @@ if __name__ == '__main__':
                         bot.answer_callback_query(call.id, "❌ Не удалось создать счет. Попробуйте позже.", show_alert=True)
                 run_async_task(create_cashlait_invoice_async())
                 return
+            if call.data == "create_bot_dicelite":
+                if not is_crypto_token_configured():
+                    bot.answer_callback_query(call.id, "❌ Crypto Pay токен не настроен.", show_alert=True)
+                    return
+                local_crypto = get_crypto_client()
+                if not local_crypto:
+                    bot.answer_callback_query(call.id, "❌ Crypto Pay недоступен сейчас.", show_alert=True)
+                    return
+                bot.answer_callback_query(call.id, "⏳ Создаю счет...")
+                dicelite_price = float(get_setting('dicelite_price') or 1.0)
+                async def create_dicelite_invoice_async():
+                    try:
+                        payload = f"dicelite_new_{user_id}"
+                        invoice = await local_crypto.create_invoice(asset='USDT', amount=dicelite_price, fiat='USD', payload=payload)
+                        if invoice:
+                            db_execute("INSERT INTO crypto_payments (invoice_id, bot_id, user_id, amount, status) VALUES (?, ?, ?, ?, 'pending')",
+                                       (invoice.invoice_id, 0, user_id, dicelite_price), commit=True)
+                            markup = types.InlineKeyboardMarkup(row_width=1)
+                            markup.add(types.InlineKeyboardButton("💳 Оплатить счет", url=invoice.bot_invoice_url))
+                            markup.add(types.InlineKeyboardButton("🔄 Проверить оплату", callback_data=f"dicelitenew_check_{invoice.invoice_id}"))
+                            markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="create_bot_dicelite"))
+                            bot.edit_message_text(
+                                f"🎲 Стоимость DiceLite бота: {dicelite_price:.2f} $.\n"
+                                f"Оплатите счет по кнопке ниже и возвращайтесь сюда для проверки оплаты.",
+                                user_id,
+                                call.message.message_id,
+                                reply_markup=markup
+                            )
+                    except Exception as e:
+                        logging.error(f"Ошибка создания счета CryptoPay для DiceLite: {e}")
+                        bot.answer_callback_query(call.id, "❌ Не удалось создать счет. Попробуйте позже.", show_alert=True)
+                run_async_task(create_dicelite_invoice_async())
+                return
             # Удалены: create_bot_creator
 
             data = call.data.split('_')
@@ -4804,6 +5088,7 @@ if __name__ == '__main__':
                     'clicker': "Кликер",
                     'anonchat': "Анонимный чат",
                     'cashlait': "CashLait",
+                    'dicelite': "DiceLite",
                 }
                 bot_type_name = type_names.get(bot_info['bot_type'], "Неизвестный шаблон")
                 if bot_info['status'] == 'running' and bot_info['pid'] and psutil.pid_exists(bot_info['pid']):
@@ -4838,6 +5123,8 @@ if __name__ == '__main__':
                     config_menu = create_anonchat_bot_config_menu(bot_id)
                 elif bot_info['bot_type'] == 'cashlait':
                     config_menu = create_cashlait_bot_config_menu(bot_id)
+                elif bot_info['bot_type'] == 'dicelite':
+                    config_menu = create_dicelite_bot_config_menu(bot_id)
                 bot.edit_message_text(f"⚙️ Меню конфигурации бота {name}", user_id, call.message.message_id, reply_markup=config_menu)
             
             elif action == 'transfer' and data[2] == 'start':
@@ -4881,6 +5168,8 @@ if __name__ == '__main__':
                         'stars': f"dbs/bot_{bot_id}_stars_data.db",
                         'clicker': f"dbs/bot_{bot_id}_clicker_data.db",
                         'anonchat': f"dbs/bot_{bot_id}_anonchat.db",
+                        'cashlait': f"dbs/bot_{bot_id}_cashlait.db",
+                        'dicelite': f"dbs/bot_{bot_id}_dicelite.db",
                     }
                     db_filename = db_filename_map.get(bot_info['bot_type'])
                     if not db_filename or not os.path.exists(db_filename):
@@ -4964,6 +5253,8 @@ if __name__ == '__main__':
                     'cashlait_crypto_pay_token': "💳 Введите Crypto Pay токен (из @CryptoBot):",
                     'cashlait_currency_symbol': "💱 Введите символ валюты (пример: USDT):",
                     'cashlait_welcome_text': "👋 Введите приветственное сообщение для CashLait (поддерживается HTML):",
+                    'dicelite_crypto_pay_token': "💳 Введите Crypto Pay токен (из @CryptoBot) для DiceLite:",
+                    'dicelite_welcome_text': "👋 Введите приветственное сообщение для DiceLite (поддерживается HTML):",
                 }
                 if setting_name in prompts:
                     current_value_str = escape(str(current_value)) if current_value is not None else "Не установлено"

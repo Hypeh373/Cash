@@ -41,14 +41,38 @@ logging.basicConfig(
 logger = logging.getLogger("game-bot")
 
 
-# --- Manual configuration: fill these values directly in the bot ---
-BOT_TOKEN = "8565707362:AAHfN9yUjhh8C2Em5Uji-Iu9QZXMqthXuOU"
+def _parse_admin_ids(value: Optional[str]) -> Set[int]:
+    ids: Set[int] = set()
+    if not value:
+        return ids
+    for part in value.replace(";", ",").split(","):
+        candidate = part.strip()
+        if not candidate:
+            continue
+        try:
+            ids.add(int(candidate))
+        except ValueError:
+            continue
+    return ids
+
+
+# --- Configuration via environment variables (managed by creator) ---
+BOT_TOKEN = (
+    os.getenv("DICELITE_BOT_TOKEN")
+    or os.getenv("BOT_TOKEN")
+    or "PASTE_TELEGRAM_BOT_TOKEN_HERE"
+).strip()
 if not BOT_TOKEN or BOT_TOKEN == "PASTE_TELEGRAM_BOT_TOKEN_HERE":
-    raise RuntimeError("Set BOT_TOKEN in bot.py to your actual Telegram bot token")
+    raise RuntimeError("Set DICELITE_BOT_TOKEN environment variable to your Telegram bot token")
 
-ADMIN_IDS = {7585735331}
+ADMIN_IDS = _parse_admin_ids(os.getenv("ADMIN_IDS"))
+if not ADMIN_IDS:
+    ADMIN_IDS = {7585735331}
 
-DATABASE_PATH = os.getenv("BOT_DB_PATH", os.path.join(os.path.dirname(__file__), "bot.db"))
+DATABASE_PATH = os.getenv(
+    "DICELITE_DB",
+    os.getenv("BOT_DB_PATH", os.path.join(os.path.dirname(__file__), "bot.db")),
+)
 
 
 DEFAULT_SETTINGS: Dict[str, str] = {
@@ -98,6 +122,9 @@ DEFAULT_SETTINGS: Dict[str, str] = {
     "mines_multiplier_17": "2.00",
 }
 
+ENV_WELCOME = os.getenv("DICELITE_WELCOME_TEXT")
+if ENV_WELCOME:
+    DEFAULT_SETTINGS["welcome_text"] = ENV_WELCOME
 
 ADMIN_SETTING_TITLES: Dict[str, str] = {
     "welcome_text": "Текст приветствия",
@@ -166,13 +193,20 @@ def admin_setting_button_label(setting_key: str) -> str:
 
 
 MONEY_QUANT = Decimal("0.01")
-CRYPTOPAY_API_TOKEN = os.getenv("CRYPTOPAY_TOKEN", "").strip()
-CRYPTOPAY_USE_TESTNET = os.getenv("CRYPTOPAY_USE_TESTNET", "false").lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
+CRYPTOPAY_API_TOKEN = (
+    os.getenv("DICELITE_CRYPTO_PAY_TOKEN")
+    or os.getenv("CRYPTOPAY_TOKEN", "")
+).strip()
+CRYPTOPAY_USE_TESTNET = (
+    os.getenv("DICELITE_CRYPTOPAY_USE_TESTNET", os.getenv("CRYPTOPAY_USE_TESTNET", "false"))
+    .lower()
+    in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+)
 CRYPTOPAY_BASE_URL = (
     "https://testnet-pay.crypt.bot/api"
     if CRYPTOPAY_USE_TESTNET
