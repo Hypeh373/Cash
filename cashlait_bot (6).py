@@ -107,8 +107,8 @@ INFO_LINK_FIELDS: Dict[str, Tuple[str, str]] = {
 
 RESERVE_SETTING_FIELDS: Dict[str, Tuple[str, str]] = {
     "crypto_pay_token": ("Crypto Pay токен", "text"),
-    "crypto_pay_asset": ("Актив выплат (например, TON)", "text"),
-    "reserve_invoice_asset": ("Актив пополнения", "text"),
+    "crypto_pay_asset": ("Актив выплат (например, USDT)", "text"),
+    "reserve_invoice_asset": ("Актив пополнения (например, USDT)", "text"),
     "reserve_invoice_description": ("Описание счёта", "text"),
 }
 
@@ -3688,20 +3688,24 @@ def show_reserve_settings(call: types.CallbackQuery) -> None:
 
 def start_reserve_invoice(call: types.CallbackQuery) -> None:
     user_states[call.from_user.id] = {"mode": "admin_reserve_invoice"}
+    asset = db.get_setting("reserve_invoice_asset", "USDT") or "USDT"
     bot.answer_callback_query(call.id)
     bot.send_message(
         call.message.chat.id,
-        "Введите сумму для счёта пополнения (в активе настроек).",
+        f"Введите сумму для счёта пополнения в <b>{asset}</b>.",
+        parse_mode="HTML",
         reply_markup=admin_cancel_markup(),
     )
 
 
 def start_reserve_cashout(call: types.CallbackQuery) -> None:
     user_states[call.from_user.id] = {"mode": "admin_reserve_cashout"}
+    asset = db.get_setting("crypto_pay_asset", "USDT") or "USDT"
     bot.answer_callback_query(call.id)
     bot.send_message(
         call.message.chat.id,
-        "Введите сумму для вывода (в активе настроек).",
+        f"Введите сумму для вывода в <b>{asset}</b>.",
+        parse_mode="HTML",
         reply_markup=admin_cancel_markup(),
     )
 
