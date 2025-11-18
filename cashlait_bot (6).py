@@ -1785,6 +1785,9 @@ def send_flyer_logs(chat_id: int) -> None:
 
 def admin_menu_markup() -> types.InlineKeyboardMarkup:
     kb = types.InlineKeyboardMarkup(row_width=2)
+    # Кнопка быстрого изменения награды
+    kb.add(types.InlineKeyboardButton("💵 Изменить награду за задание", callback_data="admin:set:task_reward"))
+    
     kb.add(
         types.InlineKeyboardButton("⚙️ Настройки", callback_data="admin:settings"),
         types.InlineKeyboardButton("✈️ Flyer", callback_data="admin:flyer"),
