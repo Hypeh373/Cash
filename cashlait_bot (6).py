@@ -3631,14 +3631,22 @@ def show_reserve_panel(call: types.CallbackQuery) -> None:
         
         if isinstance(balances, list) and len(balances) > 0:
             for item in balances:
-                # Проверяем, что item это словарь и имеет нужные ключи
                 if isinstance(item, dict):
-                    asset_name = item.get('asset', 'Unknown')
-                    available = item.get('available', '0')
-                    onhold = item.get('onhold', '0')
-                    lines.append(f"{asset_name}: доступно {available} / удержано {onhold}")
+                    # Пытаемся найти код валюты в разных полях
+                    asset_name = item.get('asset') or item.get('currency_code') or 'Unknown'
+                    
+                    available = dec(item.get('available', '0'))
+                    onhold = dec(item.get('onhold', '0'))
+                    
+                    # Показываем только если есть баланс или он был в движении
+                    if available > 0 or onhold > 0:
+                        lines.append(f"<b>{asset_name}</b>: доступно {available} / удержано {onhold}")
+                    
+                    # Если Unknown и есть баланс - логируем структуру для отладки
+                    if asset_name == 'Unknown' and (available > 0 or onhold > 0):
+                        logger.warning(f"Неизвестная структура баланса: {item}")
         else:
-            lines.append("Балансы пусты или API вернул пустой список.")
+            lines.append("Балансы пусты")
         
         # Добавляем кнопки пополнения и вывода только если токен работает
         kb.add(
