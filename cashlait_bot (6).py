@@ -3642,9 +3642,13 @@ def show_reserve_panel(call: types.CallbackQuery) -> None:
                     if available > 0 or onhold > 0:
                         lines.append(f"<b>{asset_name}</b>: доступно {available} / удержано {onhold}")
                     
-                    # Если Unknown и есть баланс - логируем структуру для отладки
+                    # Если Unknown и есть баланс - выводим ключи прямо в сообщение
                     if asset_name == 'Unknown' and (available > 0 or onhold > 0):
-                        logger.warning(f"Неизвестная структура баланса: {item}")
+                        keys_str = str(list(item.keys()))
+                        lines.append(f"⚠️ Неизвестная структура: <code>{keys_str}</code>")
+                        # Также попробуем вывести весь item если он небольшой
+                        if len(str(item)) < 100:
+                             lines.append(f"Item: <code>{item}</code>")
         else:
             lines.append("Балансы пусты")
         
