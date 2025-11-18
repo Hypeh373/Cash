@@ -1341,6 +1341,18 @@ def get_menu_button_text(key: str) -> str:
     return db.get_setting(key, DEFAULT_SETTINGS.get(key, ""))
 
 
+def get_task_reward_amount() -> Decimal:
+    """
+    Возвращает актуальную награду за выполнение одного задания.
+    Предпочтительно берёт значение из task_reward, но сохраняет обратную совместимость
+    с устаревшим ключом cashlait_task_price.
+    """
+    value = db.get_setting("task_reward", DEFAULT_SETTINGS.get("task_reward", "1.0"))
+    if not value:
+        value = db.get_setting("cashlait_task_price", DEFAULT_SETTINGS.get("task_reward", "1.0"))
+    return dec(value or DEFAULT_SETTINGS.get("task_reward", "1.0"), DEFAULT_SETTINGS.get("task_reward", "1.0"))
+
+
 def build_main_keyboard(user_id: Optional[int] = None) -> types.ReplyKeyboardMarkup:
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     kb.row(types.KeyboardButton(get_menu_button_text("menu_btn_cabinet")))
@@ -2068,7 +2080,7 @@ def send_referrals_section(user: sqlite3.Row, chat_id: int) -> None:
 
 def send_promotion_section(user: sqlite3.Row, chat_id: int) -> None:
     promo_balance = dec(row_get(user, "promo_balance", "0"), "0")
-    task_price = dec(db.get_setting("cashlait_task_price", "0.1"))
+    task_price = get_task_reward_amount()
     min_completions = int(db.get_setting("cashlait_min_completions", "10") or 10)
     
     # Рассчитываем, на сколько выполнений хватит баланса
@@ -2321,7 +2333,7 @@ def process_promo_create_task(message: types.Message, user: sqlite3.Row) -> None
         update_prompt("❌ Создание задания отменено.")
         return
 
-    task_price = dec(db.get_setting("cashlait_task_price", "0.1"))
+    task_price = get_task_reward_amount()
     min_completions = int(db.get_setting("cashlait_min_completions", "10") or 10)
 
     if step == "completions":
@@ -3202,7 +3214,7 @@ def callback_promo_actions(call: types.CallbackQuery) -> None:
     
     if action == "create":
         # Получаем настройки
-        task_price = dec(db.get_setting("cashlait_task_price", "0.1"))
+        task_price = get_task_reward_amount()
         min_completions = int(db.get_setting("cashlait_min_completions", "10") or 10)
         
         text = (
