@@ -3628,11 +3628,17 @@ def show_reserve_panel(call: types.CallbackQuery) -> None:
     try:
         balances = crypto.get_balance()
         lines = ["💸 Резерв Crypto Pay", ""]
-        if balances:
+        
+        if isinstance(balances, list) and len(balances) > 0:
             for item in balances:
-                lines.append(f"{item['asset']}: доступно {item['available']} / удержано {item.get('onhold', 0)}")
+                # Проверяем, что item это словарь и имеет нужные ключи
+                if isinstance(item, dict):
+                    asset_name = item.get('asset', 'Unknown')
+                    available = item.get('available', '0')
+                    onhold = item.get('onhold', '0')
+                    lines.append(f"{asset_name}: доступно {available} / удержано {onhold}")
         else:
-            lines.append("Балансы пусты")
+            lines.append("Балансы пусты или API вернул пустой список.")
         
         # Добавляем кнопки пополнения и вывода только если токен работает
         kb.add(
@@ -3640,13 +3646,14 @@ def show_reserve_panel(call: types.CallbackQuery) -> None:
             types.InlineKeyboardButton("➖ Вывести", callback_data="admin:reservecashout"),
         )
     except Exception as exc:
+        logger.error(f"Ошибка получения баланса Crypto Pay: {exc}", exc_info=True)
         lines = [
             "💸 Резерв Crypto Pay",
             "",
-            f"⚠️ <b>Ошибка подключения к Crypto Pay API:</b>",
+            f"⚠️ <b>Ошибка при получении данных:</b>",
             f"<code>{exc}</code>",
             "",
-            "Проверьте правильность токена в настройках."
+            "Проверьте токен и настройки."
         ]
     
     kb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin:menu"))
