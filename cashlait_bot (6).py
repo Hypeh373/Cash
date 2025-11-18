@@ -58,7 +58,7 @@ DEFAULT_SETTINGS: Dict[str, str] = {
     "flyer_task_limit": "5",
     "crypto_pay_token": "",
     "crypto_pay_asset": "USDT",
-    "asset_rate": "1",  # asset units per USDT
+    # "asset_rate" убран - курс получается автоматически через Crypto Pay API
     "ref_percent_level1": "15.0",
     "ref_percent_level2": "5.0",
     "payout_notify_channel": "",
@@ -74,14 +74,14 @@ DEFAULT_SETTINGS: Dict[str, str] = {
     "info_help_url": "",
     "info_news_url": "",
     "info_chat_url": "",
-    "info_copy_bot_url": CONSTRUCTOR_BOT_LINK,
+    # "info_copy_bot_url" убрана из настроек - используется константа CONSTRUCTOR_BOT_LINK
 }
 
 ADMIN_SETTING_FIELDS: Dict[str, Tuple[str, str]] = {
     "task_reward": ("Награда за задание (USDT)", "decimal"),
     "min_withdraw": ("Минимальный вывод (USDT)", "decimal"),
     "currency_symbol": ("Символ валюты", "text"),
-    "asset_rate": ("Курс USDT → asset", "decimal"),
+    # "asset_rate" убран - курс получается автоматически через Crypto Pay API
 }
 
 FLYER_SETTING_FIELDS: Dict[str, Tuple[str, str]] = {
@@ -102,7 +102,7 @@ INFO_LINK_FIELDS: Dict[str, Tuple[str, str]] = {
     "info_help_url": ("Ссылка «Помощь»", "text"),
     "info_news_url": ("Ссылка «Новости»", "text"),
     "info_chat_url": ("Ссылка «Чат»", "text"),
-    "info_copy_bot_url": ("Ссылка «Хочу такого же бота»", "text"),
+    # "info_copy_bot_url" убрана - теперь только через константу CONSTRUCTOR_BOT_LINK
 }
 
 RESERVE_SETTING_FIELDS: Dict[str, Tuple[str, str]] = {
@@ -1231,6 +1231,10 @@ class CryptoPayClient:
 
     def get_balance(self) -> List[Dict[str, Any]]:
         return self.call("getBalance")
+    
+    def get_exchange_rates(self) -> List[Dict[str, Any]]:
+        """Получает текущие курсы обмена валют"""
+        return self.call("getExchangeRates")
 
     def create_invoice(
         self,
@@ -1281,6 +1285,56 @@ def get_crypto_client() -> Optional[CryptoPayClient]:
 def currency_symbol() -> str:
     value = db.get_setting("currency_symbol", "USDT")
     return value or "USDT"
+
+
+def get_effective_asset_rate(asset: str) -> Decimal:
+    """
+    Получает курс актива к USDT через Crypto Pay API.
+    Если не удается получить курс, возвращает 1.0 (как fallback).
+    
+    Args:
+        asset: Код актива (USDT, TON, BTC, и т.д.)
+    
+    Returns:
+        Decimal: Курс актива к USDT (сколько USDT стоит 1 единица актива)
+    """
+    # Если актив сам USDT, курс = 1
+    if asset == "USDT":
+        return Decimal("1.0")
+    
+    crypto = get_crypto_client()
+    if not crypto:
+        logger.warning("Crypto Pay клиент не настроен, используется курс 1.0")
+        return Decimal("1.0")
+    
+    try:
+        rates = crypto.get_exchange_rates()
+        # Ищем курс актива к USD
+        for rate_item in rates:
+            if rate_item.get("source") == asset and rate_item.get("target") == "USD":
+                rate_value = rate_item.get("rate")
+                if rate_value and rate_item.get("is_valid"):
+                    rate_decimal = dec(rate_value, "1.0")
+                    logger.info(f"Получен курс {asset}/USD: {rate_decimal}")
+                    return rate_decimal
+        
+        # Если не нашли прямой курс, пробуем обратный (USD к активу)
+        for rate_item in rates:
+            if rate_item.get("source") == "USD" and rate_item.get("target") == asset:
+                rate_value = rate_item.get("rate")
+                if rate_value and rate_item.get("is_valid"):
+                    rate_decimal = dec(rate_value, "1.0")
+                    if rate_decimal > 0:
+                        inverse_rate = Decimal("1.0") / rate_decimal
+                        logger.info(f"Получен обратный курс USD/{asset}: {rate_decimal}, инвертирован в {inverse_rate}")
+                        return inverse_rate
+        
+        logger.warning(f"Курс для {asset} не найден в API, используется fallback 1.0")
+        return Decimal("1.0")
+        
+    except Exception as exc:
+        logger.error(f"Ошибка получения курса через Crypto Pay API: {exc}")
+        return Decimal("1.0")
 
 
 def get_menu_button_text(key: str) -> str:
@@ -2088,7 +2142,9 @@ def send_about_section(chat_id: int) -> None:
     add_info_button("❓ Помощь", "info_help_url", "help")
     add_info_button("📣 Новости", "info_news_url", "news")
     add_info_button("💬 Чат", "info_chat_url", "chat")
-    add_info_button("🤖 Хочу такого же бота", "info_copy_bot_url", "copy")
+    # Кнопка "Хочу такого же бота" - берется из константы CONSTRUCTOR_BOT_LINK, а не из настроек
+    if CONSTRUCTOR_BOT_LINK:
+        markup.add(types.InlineKeyboardButton("🤖 Хочу такого же бота", url=CONSTRUCTOR_BOT_LINK))
     bot.send_message(chat_id, text, reply_markup=markup)
 
 
@@ -3544,30 +3600,55 @@ def run_broadcast(text: str) -> Tuple[int, int]:
 
 
 def show_reserve_panel(call: types.CallbackQuery) -> None:
-    crypto = get_crypto_client()
-    settings_kb = types.InlineKeyboardMarkup()
-    settings_kb.add(types.InlineKeyboardButton("⚙️ Настройки", callback_data="admin:reservesettings"))
-    settings_kb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin:menu"))
-    if not crypto:
-        text = "Укажите Crypto Pay токен в разделе настроек."
-        admin_update_message(call, text, settings_kb)
-        bot.answer_callback_query(call.id)
-        return
-    try:
-        balances = crypto.get_balance()
-    except Exception as exc:
-        admin_update_message(call, f"Ошибка получения баланса: {exc}", settings_kb)
-        bot.answer_callback_query(call.id)
-        return
-    lines = ["💸 Резерв Crypto Pay", ""]
-    for item in balances:
-        lines.append(f"{item['asset']}: доступно {item['available']} / удержано {item.get('onhold', 0)}")
+    """Показывает панель управления резервом Crypto Pay"""
     kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton("⚙️ Настройки", callback_data="admin:reservesettings"))
-    kb.add(
-        types.InlineKeyboardButton("➕ Пополнить", callback_data="admin:reserveinvoice"),
-        types.InlineKeyboardButton("➖ Вывести", callback_data="admin:reservecashout"),
-    )
+    
+    crypto = get_crypto_client()
+    if not crypto:
+        # Даже без токена показываем панель с настройками
+        lines = [
+            "💸 Резерв Crypto Pay",
+            "",
+            "⚠️ <b>Crypto Pay API не настроен</b>",
+            "",
+            "Для работы с резервом необходимо:",
+            "1. Получить токен в @CryptoBot → Crypto Pay → Создать приложение",
+            "2. Указать токен в настройках ниже",
+            "3. Настроить актив для выплат (USDT, TON, и т.д.)",
+            "",
+            "После настройки здесь будет отображаться баланс резерва."
+        ]
+        kb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin:menu"))
+        admin_update_message(call, "\n".join(lines), kb)
+        bot.answer_callback_query(call.id)
+        return
+    
+    # Токен есть - пытаемся получить баланс
+    try:
+        balances = crypto.get_balance()
+        lines = ["💸 Резерв Crypto Pay", ""]
+        if balances:
+            for item in balances:
+                lines.append(f"{item['asset']}: доступно {item['available']} / удержано {item.get('onhold', 0)}")
+        else:
+            lines.append("Балансы пусты")
+        
+        # Добавляем кнопки пополнения и вывода только если токен работает
+        kb.add(
+            types.InlineKeyboardButton("➕ Пополнить", callback_data="admin:reserveinvoice"),
+            types.InlineKeyboardButton("➖ Вывести", callback_data="admin:reservecashout"),
+        )
+    except Exception as exc:
+        lines = [
+            "💸 Резерв Crypto Pay",
+            "",
+            f"⚠️ <b>Ошибка подключения к Crypto Pay API:</b>",
+            f"<code>{exc}</code>",
+            "",
+            "Проверьте правильность токена в настройках."
+        ]
+    
     kb.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin:menu"))
     admin_update_message(call, "\n".join(lines), kb)
     bot.answer_callback_query(call.id)
@@ -3813,51 +3894,125 @@ def handle_state_message(message: types.Message, user: sqlite3.Row, state: Dict[
         user_states.pop(user["user_id"], None)
         return True
     if mode == "admin_reserve_invoice":
+        # Обработка пополнения резерва
         try:
             amount = parse_decimal_input(message.text or "", ASSET_QUANT)
         except (InvalidOperation, ValueError):
-            admin_reply(message, "Введите корректную сумму.")
+            admin_reply(message, "❌ Введите корректную сумму.")
             return True
+        
+        if amount <= 0:
+            admin_reply(message, "❌ Сумма должна быть больше нуля.")
+            return True
+        
         crypto = get_crypto_client()
         if not crypto:
-            admin_reply(message, "Crypto Pay не настроен.")
+            admin_reply(message, "❌ Crypto Pay не настроен. Укажите токен в настройках резерва.")
             return True
+        
         asset = db.get_setting("reserve_invoice_asset", "USDT") or "USDT"
         description = db.get_setting("reserve_invoice_description", "Пополнение резерва")
+        
         try:
             invoice = crypto.create_invoice(asset=asset, amount=amount, description=description)
+            invoice_url = invoice.get('bot_invoice_url') or invoice.get('pay_url') or ""
+            invoice_id = invoice.get('invoice_id', 'N/A')
+            
+            if not invoice_url:
+                admin_reply(message, "❌ Не удалось получить ссылку на счёт.")
+                return True
+            
+            user_states.pop(user["user_id"], None)
+            
+            response_text = (
+                f"✅ <b>Счёт на пополнение резерва создан!</b>\n\n"
+                f"💰 Сумма: <code>{amount}</code> {asset}\n"
+                f"🔢 ID счёта: <code>{invoice_id}</code>\n"
+                f"📝 Описание: {description}\n\n"
+                f"Оплатите счёт по ссылке:\n{invoice_url}\n\n"
+                f"После оплаты средства поступят на баланс резерва бота."
+            )
+            
+            bot.reply_to(
+                message,
+                response_text,
+                disable_web_page_preview=True,
+            )
+            
+            logger.info(f"Создан счёт пополнения резерва: {invoice_id}, сумма: {amount} {asset}")
+            
         except Exception as exc:
-            admin_reply(message, f"Ошибка создания счёта: {exc}")
-            return True
-        user_states.pop(user["user_id"], None)
-        bot.reply_to(
-            message,
-            f"Счёт создан: {invoice.get('bot_invoice_url')}",
-            disable_web_page_preview=True,
-        )
+            logger.error(f"Ошибка создания счёта пополнения резерва: {exc}")
+            admin_reply(message, f"❌ Ошибка создания счёта:\n<code>{exc}</code>")
+        
         return True
     if mode == "admin_reserve_cashout":
+        # Обработка вывода средств из резерва
         try:
             amount = parse_decimal_input(message.text or "", ASSET_QUANT)
         except (InvalidOperation, ValueError):
-            admin_reply(message, "Введите корректную сумму.")
+            admin_reply(message, "❌ Введите корректную сумму.")
             return True
+        
+        if amount <= 0:
+            admin_reply(message, "❌ Сумма должна быть больше нуля.")
+            return True
+        
         crypto = get_crypto_client()
         if not crypto:
-            admin_reply(message, "Crypto Pay не настроен.")
+            admin_reply(message, "❌ Crypto Pay не настроен. Укажите токен в настройках резерва.")
             return True
+        
         asset = db.get_setting("crypto_pay_asset", "USDT") or "USDT"
+        
         try:
+            # Проверяем баланс перед выводом
+            balances = crypto.get_balance()
+            available_balance = Decimal("0")
+            for balance_item in balances:
+                if balance_item.get("asset") == asset:
+                    available_balance = dec(balance_item.get("available", "0"), "0")
+                    break
+            
+            if available_balance < amount:
+                admin_reply(
+                    message, 
+                    f"❌ Недостаточно средств в резерве!\n\n"
+                    f"Доступно: <code>{available_balance}</code> {asset}\n"
+                    f"Запрошено: <code>{amount}</code> {asset}"
+                )
+                return True
+            
             check = crypto.create_check(asset=asset, amount=amount)
+            check_url = check.get('bot_check_url', '')
+            check_id = check.get('check_id', 'N/A')
+            
+            if not check_url:
+                admin_reply(message, "❌ Не удалось получить ссылку на чек.")
+                return True
+            
+            user_states.pop(user["user_id"], None)
+            
+            response_text = (
+                f"✅ <b>Чек на вывод создан!</b>\n\n"
+                f"💰 Сумма: <code>{amount}</code> {asset}\n"
+                f"🔢 ID чека: <code>{check_id}</code>\n\n"
+                f"Активируйте чек по ссылке:\n{check_url}\n\n"
+                f"⚠️ Чек может активировать любой пользователь, кто первым перейдет по ссылке!"
+            )
+            
+            bot.reply_to(
+                message,
+                response_text,
+                disable_web_page_preview=True,
+            )
+            
+            logger.info(f"Создан чек вывода из резерва: {check_id}, сумма: {amount} {asset}")
+            
         except Exception as exc:
-            admin_reply(message, f"Ошибка создания чека: {exc}")
-            return True
-        user_states.pop(user["user_id"], None)
-        bot.reply_to(
-            message,
-            f"Чек создан: {check.get('bot_check_url')}",
-            disable_web_page_preview=True,
-        )
+            logger.error(f"Ошибка создания чека вывода из резерва: {exc}")
+            admin_reply(message, f"❌ Ошибка создания чека:\n<code>{exc}</code>")
+        
         return True
     return False
 
