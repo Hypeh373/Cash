@@ -29,7 +29,7 @@ except ImportError:
 # =================================================================================
 # --------------------------- ОСНОВНЫЕ НАСТРОЙКИ ----------------------------------
 # =================================================================================
-CREATOR_BOT_TOKEN = '7631769783:AAHcLne4a_Ra5ZrWxTwYJFuKkUcTXkRcQ3k'  # 👈 Вставь свой токен конструктора
+CREATOR_BOT_TOKEN = '8400644706:AAFjCQDxS73hvhizY4f3v94-vlXLkvqGHdQ'  # 👈 Вставь свой токен конструктора
 CRYPTO_PAY_TOKEN = '467156:AA0Mvgp0h5oKZaETFQZqdnCWUZSoPVpAT0W' # 👈 Получи его в @CryptoBot -> Crypto Pay -> Создать приложение
 
 ADMIN_ID = 5851731333 # 👈 ТВОЙ ID АДМИНИНИСТРАТОРА
@@ -183,6 +183,15 @@ loop_thread = threading.Thread(target=run_async_loop, args=(async_loop,), daemon
 def run_async_task(coro):
     future = asyncio.run_coroutine_threadsafe(coro, async_loop)
     return future.result()
+
+def row_to_dict(record):
+    if record is None:
+        return None
+    if isinstance(record, dict):
+        return record
+    if isinstance(record, sqlite3.Row):
+        return {key: record[key] for key in record.keys()}
+    return record
 
 def is_admin(user_id: int) -> bool:
     try:
@@ -759,10 +768,10 @@ def unlock_dicelite_globally():
         raise
 
 def get_user(user_id, username=None):
-    user = db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+    user = row_to_dict(db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True))
     if user is None: 
         db_execute("INSERT OR IGNORE INTO users (user_id, username) VALUES (?, ?)", (user_id, username), commit=True)
-        user = db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+        user = row_to_dict(db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True))
     if user is not None:
         try:
             needs_sync_clicker = (
@@ -776,7 +785,7 @@ def get_user(user_id, username=None):
                     (user_id,),
                     commit=True
                 )
-                user = db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+                user = row_to_dict(db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True))
             
             needs_sync_anonchat = (
                 hasattr(user, 'keys')
@@ -789,7 +798,7 @@ def get_user(user_id, username=None):
                     (user_id,),
                     commit=True
                 )
-                user = db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+                user = row_to_dict(db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True))
             
             needs_sync_cashlait = (
                 hasattr(user, 'keys')
@@ -802,7 +811,7 @@ def get_user(user_id, username=None):
                     (user_id,),
                     commit=True
                 )
-                user = db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+                user = row_to_dict(db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True))
 
             needs_sync_dicelite = (
                 hasattr(user, 'keys')
@@ -815,7 +824,7 @@ def get_user(user_id, username=None):
                     (user_id,),
                     commit=True
                 )
-                user = db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True)
+                user = row_to_dict(db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True))
         except Exception as exc:
             logging.error(f"Не удалось синхронизировать флаги разблокировки для пользователя {user_id}: {exc}")
     return user
@@ -827,7 +836,7 @@ def get_user_bots(user_id):
     return db_execute("SELECT * FROM bots WHERE owner_id = ? ORDER BY id DESC", (user_id,), fetchall=True)
 
 def get_bot_by_id(bot_id):
-    return db_execute("SELECT * FROM bots WHERE id = ?", (bot_id,), fetchone=True)
+    return row_to_dict(db_execute("SELECT * FROM bots WHERE id = ?", (bot_id,), fetchone=True))
 
 def create_bot_in_db(owner_id, bot_type):
     return db_execute("INSERT INTO bots (owner_id, admins, bot_type) VALUES (?, ?, ?)", 
@@ -857,9 +866,17 @@ def delete_bot_from_db(bot_id):
     db_execute("DELETE FROM bots WHERE id = ?", (bot_id,), commit=True)
 
 def start_bot_process(bot_id):
+    try:
+        with open("start_debug.log", "a", encoding="utf-8") as f:
+            f.write(f"[START] Attempting to launch bot {bot_id}\n")
+    except:
+        pass
+
     bot_info = get_bot_by_id(bot_id)
-    if not bot_info or not bot_info['bot_token']: return False, "Сначала установите токен!"
-    if bot_info['status'] == 'running': return False, "Бот уже запущен."
+    if not bot_info or not bot_info.get('bot_token'):
+        return False, "Сначала установите токен!"
+    if bot_info['status'] == 'running':
+        return False, "Бот уже запущен."
     try:
         env = os.environ.copy()
         admin_ids_env = []
@@ -955,8 +972,19 @@ def start_bot_process(bot_id):
         )
         log_file.close()
         update_bot_process_info(bot_id, 'running', process.pid, int(time.time()))
+        try:
+            with open("start_debug.log", "a", encoding="utf-8") as f:
+                f.write(f"[SUCCESS] Bot {bot_id} launched with PID {process.pid}\n")
+        except:
+            pass
         return True, "Бот успешно запущен."
-    except Exception as e: return False, f"Ошибка запуска: {e}"
+    except Exception as e:
+        try:
+            with open("start_debug.log", "a", encoding="utf-8") as f:
+                f.write(f"[ERROR] Bot {bot_id} failed: {e}\n")
+        except:
+            pass
+        return False, f"Ошибка запуска: {e}"
 
 def stop_bot_process(bot_id):
     bot_info = get_bot_by_id(bot_id)
@@ -1314,7 +1342,7 @@ def create_dicelite_bot_config_menu(bot_id):
         types.InlineKeyboardButton("👋 Приветствие", callback_data=f"edit_{bot_id}_dicelite_welcome_text"),
         types.InlineKeyboardButton("👥 Админы", callback_data=f"admins_{bot_id}_manage"),
     )
-    markup.add(types.InlineKeyboardButton("📜 Логи", callback_data=f"logs_{bot_id}"))
+    markup.add(types.InlineKeyboardButton("📄 Логи", callback_data=f"logs_{bot_id}_get"))
     markup.add(types.InlineKeyboardButton("⬅️ Главное меню бота", callback_data=f"actions_{bot_id}"))
     return markup
 
@@ -4544,6 +4572,11 @@ if __name__ == '__main__':
 
     @bot.callback_query_handler(func=lambda call: True)
     def handle_callback_query(call):
+        try:
+            with open("callback_debug.log", "a", encoding="utf-8") as f:
+                f.write(f"Got callback: {call.data} from {call.from_user.id}\n")
+        except: pass
+        
         user_id = call.from_user.id
         try:
             # Handle watermark toggle callback (admin only)
@@ -5212,20 +5245,34 @@ if __name__ == '__main__':
                  log_path = f"logs/bot_{bot_id}.log"
                  if os.path.exists(log_path):
                      try:
-                         with open(log_path, "r", encoding="utf-8") as f:
-                             lines = f.readlines()
-                             last_lines = "".join(lines[-20:])
-                             if not last_lines.strip(): last_lines = "Лог пуст."
+                         # Create a temp copy to avoid file locking issues on Windows
+                         temp_log = f"logs/temp_read_{bot_id}_{int(time.time())}.log"
+                         try:
+                             import shutil
+                             shutil.copy2(log_path, temp_log)
+                             with open(temp_log, "r", encoding="utf-8") as f:
+                                 lines = f.readlines()
+                                 last_lines = "".join(lines[-30:]) # Read last 30 lines
+                                 if not last_lines.strip(): last_lines = "Лог пуст."
+                         finally:
+                             if os.path.exists(temp_log):
+                                 try: os.remove(temp_log)
+                                 except: pass
                      except Exception as e:
                          last_lines = f"Ошибка чтения лога: {e}"
                  else:
                      last_lines = "Файл логов не найден. Бот еще не запускался?"
                  
                  try:
-                     bot.send_message(user_id, f"📜 <b>Логи бота #{bot_id}:</b>\n\n<pre>{escape(last_lines)}</pre>", parse_mode="HTML")
+                     # Split long messages if needed
+                     msg_text = f"📜 <b>Логи бота #{bot_id}:</b>\n\n<pre>{escape(last_lines)}</pre>"
+                     if len(msg_text) > 4000: msg_text = msg_text[-4000:]
+                     bot.send_message(user_id, msg_text, parse_mode="HTML")
                  except Exception as e:
                      bot.send_message(user_id, f"Ошибка отправки лога: {e}")
-                 bot.answer_callback_query(call.id)
+                 
+                 try: bot.answer_callback_query(call.id)
+                 except: pass
 
             elif action == 'control':
                 command = data[2]
