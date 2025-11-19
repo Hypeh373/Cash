@@ -2509,7 +2509,7 @@ def process_state_input(message):
         elif setting in ['anonchat_crypto_api_token', 'anonchat_flyer_api_key']:
             cleaned = '' if new_value_raw.strip() == '-' else new_value_raw.strip()
             update_bot_setting(bot_id, setting, cleaned)
-        elif setting in ['cashlait_flyer_api_key', 'cashlait_crypto_pay_token', 'cashlait_currency_symbol', 'dicelite_crypto_pay_token']:
+        elif setting in ['cashlait_flyer_api_key', 'cashlait_crypto_pay_token', 'cashlait_currency_symbol', 'dicelite_crypto_pay_token', 'dicelite_welcome_text']:
             cleaned = '' if new_value_raw.strip() == '-' else new_value_raw.strip()
             update_bot_setting(bot_id, setting, cleaned)
         
