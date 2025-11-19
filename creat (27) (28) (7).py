@@ -948,15 +948,50 @@ def start_bot_process(bot_id):
         
         # Verify script exists before launching
         if not os.path.exists(script_path):
+            log_file.close()
             return False, f"Скрипт не найден: {script_name}"
-        process = subprocess.Popen(
-            [sys.executable, script_path, str(bot_id)],
-            stdout=log_file, stderr=log_file, env=env
-        )
-        log_file.close()
-        update_bot_process_info(bot_id, 'running', process.pid, int(time.time()))
-        return True, "Бот успешно запущен."
-    except Exception as e: return False, f"Ошибка запуска: {e}"
+        
+        # Log startup information
+        log_file.write(f"\n{'='*60}\n")
+        log_file.write(f"Запуск бота #{bot_id} в {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+        log_file.write(f"Скрипт: {script_path}\n")
+        log_file.write(f"Тип бота: {bot_info['bot_type']}\n")
+        log_file.write(f"{'='*60}\n")
+        log_file.flush()
+        
+        try:
+            process = subprocess.Popen(
+                [sys.executable, script_path, str(bot_id)],
+                stdout=log_file, stderr=subprocess.STDOUT, env=env
+            )
+            # Give process a moment to start and check if it's still alive
+            time.sleep(0.5)
+            if process.poll() is not None:
+                # Process exited immediately
+                log_file.write(f"\nОШИБКА: Процесс завершился сразу после запуска с кодом {process.returncode}\n")
+                log_file.close()
+                # Read last lines from log file to get error details
+                try:
+                    with open(f"logs/bot_{bot_id}.log", "r", encoding='utf-8') as f:
+                        lines = f.readlines()
+                        error_output = "".join(lines[-20:])
+                except:
+                    error_output = "Не удалось прочитать логи"
+                logging.error(f"Бот #{bot_id} завершился сразу после запуска. Последние строки лога:\n{error_output}")
+                return False, f"Бот завершился сразу после запуска. Проверьте логи бота."
+            
+            log_file.close()
+            update_bot_process_info(bot_id, 'running', process.pid, int(time.time()))
+            logging.info(f"Бот #{bot_id} успешно запущен с PID {process.pid}")
+            return True, "Бот успешно запущен."
+        except Exception as e:
+            log_file.write(f"\nОШИБКА ЗАПУСКА: {e}\n")
+            log_file.close()
+            logging.error(f"Ошибка запуска бота #{bot_id}: {e}", exc_info=True)
+            return False, f"Ошибка запуска: {e}"
+    except Exception as e:
+        logging.error(f"Критическая ошибка при запуске бота #{bot_id}: {e}", exc_info=True)
+        return False, f"Критическая ошибка запуска: {e}"
 
 def stop_bot_process(bot_id):
     bot_info = get_bot_by_id(bot_id)
@@ -5083,8 +5118,15 @@ if __name__ == '__main__':
             # Удалены: create_bot_creator
 
             data = call.data.split('_')
+            if len(data) < 2:
+                bot.answer_callback_query(call.id, "❌ Неверный формат callback.", show_alert=True)
+                return
             action = data[0]
-            bot_id = int(data[1])
+            try:
+                bot_id = int(data[1])
+            except (ValueError, IndexError):
+                bot.answer_callback_query(call.id, "❌ Ошибка обработки callback.", show_alert=True)
+                return
             
             bot.answer_callback_query(call.id)
 
@@ -5136,28 +5178,39 @@ if __name__ == '__main__':
                     config_menu = create_dicelite_bot_config_menu(bot_id)
                 bot.edit_message_text(f"⚙️ Меню конфигурации бота {name}", user_id, call.message.message_id, reply_markup=config_menu)
             
-            elif action == 'transfer' and data[2] == 'start':
+            elif action == 'transfer' and len(data) >= 3 and data[2] == 'start':
                 msg = bot.edit_message_text("📲 Введите ID пользователя, которому хотите передать бота:", user_id, call.message.message_id, 
                                             reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Отмена", callback_data=f"actions_{bot_id}")))
                 set_user_state(user_id, {'action': 'transfer_bot', 'bot_id': bot_id, 'message_id': msg.message_id})
             
-            elif action == 'transfer' and data[2] == 'confirm':
-                new_owner_id = int(data[3])
-                update_bot_setting(bot_id, 'owner_id', new_owner_id)
-                bot.edit_message_text(f"✅ Бот успешно передан пользователю <code>{new_owner_id}</code>.", user_id, call.message.message_id, reply_markup=create_my_bots_menu(user_id), parse_mode="HTML")
-
-            elif action == 'logs' and data[2] == 'get':
+            elif action == 'transfer' and len(data) >= 4 and data[2] == 'confirm':
                 try:
-                    with open(f"logs/bot_{bot_id}.log", "rb") as log_file: bot.send_document(user_id, log_file, caption=f"📄 Логи для бота #{bot_id}")
-                except FileNotFoundError: bot.answer_callback_query(call.id, "❌ Лог-файл не найден.", show_alert=True)
+                    new_owner_id = int(data[3])
+                    update_bot_setting(bot_id, 'owner_id', new_owner_id)
+                    bot.edit_message_text(f"✅ Бот успешно передан пользователю <code>{new_owner_id}</code>.", user_id, call.message.message_id, reply_markup=create_my_bots_menu(user_id), parse_mode="HTML")
+                except (ValueError, IndexError):
+                    bot.answer_callback_query(call.id, "❌ Ошибка обработки передачи бота.", show_alert=True)
 
-            elif action == 'delete' and data[2] == 'confirm':
+            elif action == 'logs' and len(data) >= 3 and data[2] == 'get':
+                # Обработка logs_{bot_id}_get - отправка файла
+                try:
+                    log_path = f"logs/bot_{bot_id}.log"
+                    if os.path.exists(log_path):
+                        with open(log_path, "rb") as log_file:
+                            bot.send_document(user_id, log_file, caption=f"📄 Логи для бота #{bot_id}")
+                    else:
+                        bot.answer_callback_query(call.id, "❌ Лог-файл не найден.", show_alert=True)
+                except Exception as e:
+                    logging.error(f"Ошибка отправки лог-файла для бота {bot_id}: {e}")
+                    bot.answer_callback_query(call.id, f"❌ Ошибка отправки лог-файла: {e}", show_alert=True)
+
+            elif action == 'delete' and len(data) >= 3 and data[2] == 'confirm':
                 # Подтверждение удаления бота целиком
                 markup = types.InlineKeyboardMarkup(row_width=2)
                 markup.add(types.InlineKeyboardButton("✅ Да, удалить", callback_data=f"delete_{bot_id}_final"),
                            types.InlineKeyboardButton("❌ Отмена", callback_data=f"actions_{bot_id}"))
                 bot.edit_message_text("Вы уверены, что хотите удалить этого бота? Это действие необратимо.", user_id, call.message.message_id, reply_markup=markup)
-            elif action == 'delete' and data[2] == 'final':
+            elif action == 'delete' and len(data) >= 3 and data[2] == 'final':
                 # Удаление бота: только владелец или админ
                 bot_info = get_bot_by_id(bot_id)
                 if not bot_info:
@@ -5169,7 +5222,7 @@ if __name__ == '__main__':
                 delete_bot_from_db(bot_id)
                 bot.edit_message_text("✅ Бот успешно удален.", user_id, call.message.message_id, reply_markup=create_my_bots_menu(user_id))
             
-            elif action == 'users' and data[2] == 'export':
+            elif action == 'users' and len(data) >= 3 and data[2] == 'export':
                 try:
                     bot_info = get_bot_by_id(bot_id)
                     db_filename_map = {
@@ -5196,38 +5249,44 @@ if __name__ == '__main__':
                     else: bot.answer_callback_query(call.id, "В базе данных этого бота пока нет пользователей.", show_alert=True)
                 except (sqlite3.OperationalError, FileNotFoundError): bot.answer_callback_query(call.id, "❌ Не удалось получить доступ к базе данных бота.", show_alert=True)
 
-            elif action == 'admins' and data[2] == 'manage':
+            elif action == 'admins' and len(data) >= 3 and data[2] == 'manage':
                  bot_info = get_bot_by_id(bot_id)
                  admins = json.loads(bot_info['admins'])
                  text = f"Текущие админы: <code>{', '.join(map(str, admins)) if admins else 'нет'}</code>"
                  markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("➕ Добавить админа", callback_data=f"admins_{bot_id}_add"), types.InlineKeyboardButton("⬅️ Назад", callback_data=f"config_{bot_id}"))
                  bot.edit_message_text(text, user_id, call.message.message_id, reply_markup=markup, parse_mode="HTML")
 
-            elif action == 'admins' and data[2] == 'add':
+            elif action == 'admins' and len(data) >= 3 and data[2] == 'add':
                  msg = bot.edit_message_text("➕ Введите ID нового администратора:", user_id, call.message.message_id,
                                              reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Отмена", callback_data=f"admins_{bot_id}_manage")))
                  set_user_state(user_id, {'action': 'add_admin', 'bot_id': bot_id, 'message_id': msg.message_id})
                  
-            elif action == 'logs':
-                 log_path = f"logs/bot_{bot_id}.log"
-                 if os.path.exists(log_path):
-                     try:
-                         with open(log_path, "r", encoding="utf-8") as f:
-                             lines = f.readlines()
-                             last_lines = "".join(lines[-20:])
-                             if not last_lines.strip(): last_lines = "Лог пуст."
-                     except Exception as e:
-                         last_lines = f"Ошибка чтения лога: {e}"
-                 else:
-                     last_lines = "Файл логов не найден. Бот еще не запускался?"
-                 
-                 try:
-                     bot.send_message(user_id, f"📜 <b>Логи бота #{bot_id}:</b>\n\n<pre>{escape(last_lines)}</pre>", parse_mode="HTML")
-                 except Exception as e:
-                     bot.send_message(user_id, f"Ошибка отправки лога: {e}")
-                 bot.answer_callback_query(call.id)
+            elif action == 'logs' and (len(data) < 3 or data[2] != 'get'):
+                # Обработка logs_{bot_id} - показ последних строк (без _get)
+                log_path = f"logs/bot_{bot_id}.log"
+                if os.path.exists(log_path):
+                    try:
+                        with open(log_path, "r", encoding="utf-8") as f:
+                            lines = f.readlines()
+                            last_lines = "".join(lines[-20:])
+                            if not last_lines.strip(): last_lines = "Лог пуст."
+                    except Exception as e:
+                        logging.error(f"Ошибка чтения лога для бота {bot_id}: {e}")
+                        last_lines = f"Ошибка чтения лога: {e}"
+                else:
+                    last_lines = "Файл логов не найден. Бот еще не запускался?"
+                
+                try:
+                    bot.send_message(user_id, f"📜 <b>Логи бота #{bot_id}:</b>\n\n<pre>{escape(last_lines)}</pre>", parse_mode="HTML")
+                except Exception as e:
+                    logging.error(f"Ошибка отправки лога для бота {bot_id}: {e}")
+                    bot.send_message(user_id, f"Ошибка отправки лога: {e}")
+                bot.answer_callback_query(call.id)
 
             elif action == 'control':
+                if len(data) < 3:
+                    bot.answer_callback_query(call.id, "❌ Неверный формат callback для управления ботом.", show_alert=True)
+                    return
                 command = data[2]
                 if command in ['start', 'stop']:
                     success, message = start_bot_process(bot_id) if command == 'start' else stop_bot_process(bot_id)
@@ -5242,6 +5301,8 @@ if __name__ == '__main__':
                     else:
                         bot.answer_callback_query(call.id, f"Ошибка перезапуска: {start_message}", show_alert=True)
                     call.data = f"config_{bot_id}"; handle_callback_query(call)
+                else:
+                    bot.answer_callback_query(call.id, "❌ Неизвестная команда управления.", show_alert=True)
             
             elif action == 'edit':
                 setting_name = '_'.join(data[2:])
