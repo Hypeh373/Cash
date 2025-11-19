@@ -1314,6 +1314,7 @@ def create_dicelite_bot_config_menu(bot_id):
         types.InlineKeyboardButton("👋 Приветствие", callback_data=f"edit_{bot_id}_dicelite_welcome_text"),
         types.InlineKeyboardButton("👥 Админы", callback_data=f"admins_{bot_id}_manage"),
     )
+    markup.add(types.InlineKeyboardButton("📜 Логи", callback_data=f"logs_{bot_id}"))
     markup.add(types.InlineKeyboardButton("⬅️ Главное меню бота", callback_data=f"actions_{bot_id}"))
     return markup
 
@@ -5207,6 +5208,25 @@ if __name__ == '__main__':
                                              reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Отмена", callback_data=f"admins_{bot_id}_manage")))
                  set_user_state(user_id, {'action': 'add_admin', 'bot_id': bot_id, 'message_id': msg.message_id})
                  
+            elif action == 'logs':
+                 log_path = f"logs/bot_{bot_id}.log"
+                 if os.path.exists(log_path):
+                     try:
+                         with open(log_path, "r", encoding="utf-8") as f:
+                             lines = f.readlines()
+                             last_lines = "".join(lines[-20:])
+                             if not last_lines.strip(): last_lines = "Лог пуст."
+                     except Exception as e:
+                         last_lines = f"Ошибка чтения лога: {e}"
+                 else:
+                     last_lines = "Файл логов не найден. Бот еще не запускался?"
+                 
+                 try:
+                     bot.send_message(user_id, f"📜 <b>Логи бота #{bot_id}:</b>\n\n<pre>{escape(last_lines)}</pre>", parse_mode="HTML")
+                 except Exception as e:
+                     bot.send_message(user_id, f"Ошибка отправки лога: {e}")
+                 bot.answer_callback_query(call.id)
+
             elif action == 'control':
                 command = data[2]
                 if command in ['start', 'stop']:
