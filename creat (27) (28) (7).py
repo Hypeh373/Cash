@@ -938,9 +938,17 @@ def start_bot_process(bot_id):
         
         if not bot_info['vip_status']:
             env['CREATOR_BRANDING'] = 'true'
+        
+        # Ensure logs directory exists
+        if not os.path.exists('logs'):
+            os.makedirs('logs')
             
         log_file = open(f"logs/bot_{bot_id}.log", "a", encoding='utf-8')
         script_path = os.path.join(os.path.dirname(__file__), script_name)
+        
+        # Verify script exists before launching
+        if not os.path.exists(script_path):
+            return False, f"Скрипт не найден: {script_name}"
         process = subprocess.Popen(
             [sys.executable, script_path, str(bot_id)],
             stdout=log_file, stderr=log_file, env=env
