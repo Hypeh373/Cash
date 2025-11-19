@@ -14,6 +14,7 @@ The bot stores state in a SQLite database for persistence.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import random
@@ -1024,10 +1025,15 @@ class CryptoPayClient:
         logger.info("Crypto Pay API request: method=%s, url=%s, payload=%s", method, url, safe_payload)
         try:
             logger.info("Sending POST request to %s...", url)
+            # Explicitly encode JSON with UTF-8 to handle emoji and unicode characters
+            json_data = json.dumps(payload or {}, ensure_ascii=False)
             response = self._session.post(
                 url,
-                headers={"Crypto-Pay-API-Token": self._token},
-                json=payload or {},
+                headers={
+                    "Crypto-Pay-API-Token": self._token,
+                    "Content-Type": "application/json; charset=utf-8",
+                },
+                data=json_data.encode('utf-8'),
                 timeout=self._timeout,
             )
             logger.info("Got response from Crypto Pay: status=%s", response.status_code)
