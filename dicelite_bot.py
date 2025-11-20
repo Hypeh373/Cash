@@ -115,10 +115,7 @@ CREATOR_BRANDING_ENABLED = (
 CREATOR_CONTACT_URL = _normalize_creator_link(
     os.getenv("CREATOR_CONTACT_URL", "https://t.me/GrillCreate_bot")
 )
-CREATOR_CONTACT_LABEL = _derive_creator_label(
-    os.getenv("CREATOR_CONTACT_LABEL", ""),
-    CREATOR_CONTACT_URL,
-)
+CREATOR_CONTACT_LABEL = os.getenv("CREATOR_CONTACT_LABEL") or "🤖 Хочу такого же бота"
 CREATOR_CONTACT_BUTTON_LABEL = os.getenv(
     "CREATOR_CONTACT_BUTTON_LABEL", "🤖 Хочу такого же бота"
 ).strip() or "🤖 Хочу такого же бота"
