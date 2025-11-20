@@ -91,14 +91,14 @@ CREATOR_BRANDING_ENABLED = (
     os.getenv("CREATOR_BRANDING", "false").strip().lower() in _TRUE_VALUES
 )
 CREATOR_CONTACT_URL = _normalize_creator_link(
-    os.getenv("CREATOR_CONTACT_URL", "https://t.me/MinxoCreatorBot")
+    os.getenv("CREATOR_CONTACT_URL", "https://t.me/GrillCreate_bot")
 )
 CREATOR_CONTACT_BUTTON_LABEL = os.getenv(
     "CREATOR_CONTACT_BUTTON_LABEL", "🤖 Хочу такого же бота"
 ).strip() or "🤖 Хочу такого же бота"
 CREATOR_BRANDING_MESSAGE_TEMPLATE = os.getenv(
     "CREATOR_BRANDING_MESSAGE",
-    "🤖 Бот создан с помощью <a href='{link}'>Minxo Creator</a>.\n"
+    "🤖 Бот создан с помощью <a href='{link}'>Grill Create</a>.\n"
     "Хотите такой же? Нажмите кнопку ниже!",
 )
 VIP_FEATURES_ENABLED = not CREATOR_BRANDING_ENABLED
