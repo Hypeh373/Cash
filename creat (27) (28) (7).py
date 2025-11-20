@@ -411,7 +411,7 @@ def init_db():
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('cashlait_min_completions', '10')")
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('dicelite_price', '1.0')")
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('dicelite_vip_price', '120.0')")
-        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('dicelite_creator_link', 'https://t.me/MinxoCreatorBot')")
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('dicelite_creator_link', 'https://t.me/GrillCreate_bot')")
         # Watermark toggle for creator welcome message (enabled by default)
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('creator_watermark_enabled', '1')")
         # Global toggle for '📋 Списки ботов' feature (enabled by default)
@@ -2957,6 +2957,31 @@ def handle_admin_callbacks(call):
             pass
         return
 
+    if call.data == "admin_back":
+        bot.answer_callback_query(call.id)
+        if user_id in user_states:
+            del user_states[user_id]
+        heading = get_custom_text('admin_menu_heading')
+        chat_id = call.message.chat.id if call.message else user_id
+        message_id = call.message.message_id if call.message else None
+        if message_id is not None:
+            try:
+                bot.edit_message_text(
+                    heading,
+                    chat_id,
+                    message_id,
+                    reply_markup=create_admin_menu()
+                )
+                return
+            except telebot.apihelper.ApiTelegramException:
+                pass
+        bot.send_message(
+            chat_id,
+            heading,
+            reply_markup=create_admin_menu()
+        )
+        return
+
     # CashLait management - должно быть раньше других обработчиков
     if call.data.startswith("admin_cashlait_"):
         bot.answer_callback_query(call.id)
@@ -3016,15 +3041,22 @@ def handle_admin_callbacks(call):
         bot.answer_callback_query(call.id)
         parts = call.data.split('_')
         sub_action = parts[2] if len(parts) > 2 else None
+        detail = parts[3] if len(parts) > 3 else None
 
         if sub_action == "manage":
             if user_id in user_states:
                 del user_states[user_id]
             dicelite_price = get_setting('dicelite_price') or '1.0'
             dicelite_link = get_setting('dicelite_creator_link') or 'не задана'
+            dicelite_vip_price = (
+                get_setting('dicelite_vip_price')
+                or get_setting('vip_price')
+                or '120.0'
+            )
             markup = types.InlineKeyboardMarkup(row_width=1)
             markup.add(types.InlineKeyboardButton(f"💰 Изменить цену DiceLite ({dicelite_price} $)", callback_data="admin_dicelite_set_price"))
             markup.add(types.InlineKeyboardButton("🔗 Изменить ссылку на оплату", callback_data="admin_dicelite_set_link"))
+            markup.add(types.InlineKeyboardButton(f"⭐ Цена VIP DiceLite ({dicelite_vip_price} ₽)", callback_data="admin_vip_set_dicelite_price"))
             markup.add(types.InlineKeyboardButton("🎁 Выдать DiceLite бота", callback_data="admin_dicelite_grant"))
             markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back"))
             try:
@@ -3044,7 +3076,7 @@ def handle_admin_callbacks(call):
                 )
             return
 
-        if sub_action == "set":
+        if sub_action == "set" and detail == "price":
             try:
                 msg = bot.edit_message_text(
                     "💰 Введите новую цену (в $) для DiceLite:",
@@ -3061,7 +3093,7 @@ def handle_admin_callbacks(call):
             set_user_state(user_id, {'action': 'admin_change_setting', 'setting_key': 'dicelite_price', 'message_id': msg.message_id, 'call_id': call.id, 'message': call.message, 'min_value': 1.0})
             return
 
-        if sub_action == "set_link":
+        if sub_action == "set" and detail == "link":
             try:
                 msg = bot.edit_message_text(
                     "🔗 Введите ссылку или @username администратора для альтернативной оплаты DiceLite:",
@@ -3647,6 +3679,8 @@ def handle_admin_callbacks(call):
 
     if action == "vip":
         sub_action = parts[2]
+        chat_id = call.message.chat.id if call.message else user_id
+        message_id = call.message.message_id if call.message else None
         if sub_action == "manage":
             if user_id in user_states:
                 del user_states[user_id]
@@ -3658,39 +3692,79 @@ def handle_admin_callbacks(call):
             markup.add(types.InlineKeyboardButton(f"🎲 Цена VIP DiceLite ({dicelite_vip_price} ₽)", callback_data="admin_vip_set_dicelite_price"))
             markup.add(types.InlineKeyboardButton("🎁 Выдать VIP", callback_data="admin_vip_grant"))
             markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back"))
-            bot.edit_message_text("₽ Управление VIP-статусом:", ADMIN_ID, call.message.message_id, reply_markup=markup)
+            if message_id is not None:
+                try:
+                    bot.edit_message_text("₽ Управление VIP-статусом:", chat_id, message_id, reply_markup=markup)
+                except telebot.apihelper.ApiTelegramException:
+                    bot.send_message(chat_id, "₽ Управление VIP-статусом:", reply_markup=markup)
+            else:
+                bot.send_message(chat_id, "₽ Управление VIP-статусом:", reply_markup=markup)
         
         elif sub_action == "set" and parts[3] == "price":
-            msg = bot.edit_message_text("Введите новую цену для VIP-статуса (например, 120.0):", ADMIN_ID, call.message.message_id,
-                                        reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_vip_manage")))
-            set_user_state(ADMIN_ID, {'action': 'admin_change_setting', 'setting_key': 'vip_price', 'message_id': msg.message_id, 'call_id': call.id, 'message': call.message})
+            try_edit = message_id is not None
+            if try_edit:
+                try:
+                    msg = bot.edit_message_text(
+                        "Введите новую цену для VIP-статуса (например, 120.0):",
+                        chat_id,
+                        message_id,
+                        reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_vip_manage"))
+                    )
+                except telebot.apihelper.ApiTelegramException:
+                    try_edit = False
+            if not try_edit:
+                msg = bot.send_message(
+                    chat_id,
+                    "Введите новую цену для VIP-статуса (например, 120.0):",
+                    reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_vip_manage"))
+                )
+            set_user_state(user_id, {'action': 'admin_change_setting', 'setting_key': 'vip_price', 'message_id': msg.message_id, 'call_id': call.id, 'message': call.message})
         
         elif sub_action == "set" and parts[3] == "dicelite_price":
-            msg = bot.edit_message_text(
-                "Введите новую цену VIP-статуса для DiceLite (например, 120.0):",
-                ADMIN_ID,
-                call.message.message_id,
-                reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_vip_manage"))
-            )
-            set_user_state(ADMIN_ID, {'action': 'admin_change_setting', 'setting_key': 'dicelite_vip_price', 'message_id': msg.message_id, 'call_id': call.id, 'message': call.message})
+            try_edit = message_id is not None
+            if try_edit:
+                try:
+                    msg = bot.edit_message_text(
+                        "Введите новую цену VIP-статуса для DiceLite (например, 120.0):",
+                        chat_id,
+                        message_id,
+                        reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_vip_manage"))
+                    )
+                except telebot.apihelper.ApiTelegramException:
+                    try_edit = False
+            if not try_edit:
+                msg = bot.send_message(
+                    chat_id,
+                    "Введите новую цену VIP-статуса для DiceLite (например, 120.0):",
+                    reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_vip_manage"))
+                )
+            set_user_state(user_id, {'action': 'admin_change_setting', 'setting_key': 'dicelite_vip_price', 'message_id': msg.message_id, 'call_id': call.id, 'message': call.message})
         
         elif sub_action == "grant":
             cancel_markup = types.InlineKeyboardMarkup().add(
                 types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_vip_manage")
             )
-            msg = bot.edit_message_text(
-                "Введите ID бота, которому нужно выдать VIP:", 
-                ADMIN_ID, 
-                call.message.message_id,
-                reply_markup=cancel_markup
-            )
-            set_user_state(ADMIN_ID, {'action': 'admin_grant_vip', 'message_id': msg.message_id, 'call_id': call.id})
+            try_edit = message_id is not None
+            if try_edit:
+                try:
+                    msg = bot.edit_message_text(
+                        "Введите ID бота, которому нужно выдать VIP:", 
+                        chat_id, 
+                        message_id,
+                        reply_markup=cancel_markup
+                    )
+                except telebot.apihelper.ApiTelegramException:
+                    try_edit = False
+            if not try_edit:
+                msg = bot.send_message(
+                    chat_id,
+                    "Введите ID бота, которому нужно выдать VIP:",
+                    reply_markup=cancel_markup
+                )
+            set_user_state(user_id, {'action': 'admin_grant_vip', 'message_id': msg.message_id, 'call_id': call.id})
         return
     
     # Удалено: админ-меню 'Креатор'
-
-    if action == "back":
-        bot.edit_message_text(get_custom_text('admin_menu_heading'), ADMIN_ID, call.message.message_id, reply_markup=create_admin_menu())
 
     elif action == "get" and parts[2] == "logs" and parts[3] == "start":
         cancel_markup = types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад в админку", callback_data="admin_back"))
@@ -4429,7 +4503,7 @@ if __name__ == '__main__':
         except Exception:
             wm_enabled = True
         if wm_enabled:
-            welcome += "\n\n<i>Креатор создан с помощью</i> @MinxoCreate_bot"
+            welcome += "\n\n<i>Креатор создан с помощью</i> @GrillCreate_bot"
         bot.send_message(message.chat.id, welcome, reply_markup=create_main_menu(message.from_user.id), parse_mode="HTML")
 
     @bot.message_handler(func=lambda message: message.from_user.id in user_states)
