@@ -14,7 +14,6 @@ The bot stores state in a SQLite database for persistence.
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import random
@@ -57,39 +56,6 @@ def _parse_admin_ids(value: Optional[str]) -> Set[int]:
     return ids
 
 
-def _normalize_creator_link(value: Optional[str]) -> str:
-    if not value:
-        return ""
-    trimmed = value.strip()
-    if not trimmed:
-        return ""
-    if trimmed.startswith("@"):
-        return f"https://t.me/{trimmed[1:]}"
-    return trimmed
-
-
-def _derive_creator_label(raw_label: Optional[str], normalized_link: str) -> str:
-    candidate = (raw_label or "").strip()
-    if candidate:
-        return candidate
-    if normalized_link.startswith("https://t.me/"):
-        username = normalized_link.rsplit("/", 1)[-1]
-        if username:
-            return f"@{username}"
-    return normalized_link or ""
-
-
-def _creator_label_html(label: str, normalized_link: str) -> str:
-    display = label or normalized_link
-    if not display:
-        return ""
-    safe_display = escape(display)
-    if normalized_link:
-        safe_link = escape(normalized_link, quote=True)
-        return f"<a href=\"{safe_link}\">{safe_display}</a>"
-    return safe_display
-
-
 # --- Configuration via environment variables (managed by creator) ---
 BOT_TOKEN = (
     os.getenv("DICELITE_BOT_TOKEN")
@@ -107,26 +73,6 @@ DATABASE_PATH = os.getenv(
     "DICELITE_DB",
     os.getenv("BOT_DB_PATH", os.path.join(os.path.dirname(__file__), "bot.db")),
 )
-
-_TRUE_VALUES = {"1", "true", "yes", "on"}
-CREATOR_BRANDING_ENABLED = (
-    os.getenv("CREATOR_BRANDING", "false").strip().lower() in _TRUE_VALUES
-)
-CREATOR_CONTACT_URL = _normalize_creator_link(
-    os.getenv("CREATOR_CONTACT_URL", "https://t.me/GrillCreate_bot")
-)
-CREATOR_CONTACT_LABEL = _derive_creator_label(
-    os.getenv("CREATOR_CONTACT_LABEL", ""),
-    CREATOR_CONTACT_URL,
-)
-CREATOR_CONTACT_BUTTON_LABEL = os.getenv(
-    "CREATOR_CONTACT_BUTTON_LABEL", "🤖 Хочу такого же бота"
-).strip() or "🤖 Хочу такого же бота"
-CREATOR_BRANDING_MESSAGE_TEMPLATE = os.getenv(
-    "CREATOR_BRANDING_MESSAGE",
-    "Бот создан с помощью {label_html}",
-)
-VIP_FEATURES_ENABLED = not CREATOR_BRANDING_ENABLED
 
 
 DEFAULT_SETTINGS: Dict[str, str] = {
@@ -174,7 +120,6 @@ DEFAULT_SETTINGS: Dict[str, str] = {
     "mines_multiplier_10": "1.65",
     "mines_multiplier_12": "1.80",
     "mines_multiplier_17": "2.00",
-    "mines_safe_chance": "0",
 }
 
 ENV_WELCOME = os.getenv("DICELITE_WELCOME_TEXT")
@@ -212,7 +157,6 @@ ADMIN_SETTING_TITLES: Dict[str, str] = {
     "mines_multiplier_10": "Мины — 10 мин",
     "mines_multiplier_12": "Мины — 12 мин",
     "mines_multiplier_17": "Мины — 17 мин",
-    "mines_safe_chance": "Мины — шанс безопасной клетки (%)",
 }
 
 
@@ -238,8 +182,6 @@ def format_setting_display(setting_key: str, value: Optional[str]) -> str:
     lowered = setting_key.lower()
     if "token" in lowered or "secret" in lowered or "password" in lowered:
         return mask_sensitive_value(value)
-    if setting_key == "mines_safe_chance":
-        return f"{value}%"
     return value
 
 
@@ -374,61 +316,6 @@ def check_and_enforce_subscription(user_id: int, chat_id: int) -> bool:
         return False
     
     return True
-
-
-def is_creator_branding_active() -> bool:
-    return CREATOR_BRANDING_ENABLED and bool(CREATOR_CONTACT_URL or CREATOR_CONTACT_LABEL)
-
-
-def build_creator_branding_markup() -> Optional[types.InlineKeyboardMarkup]:
-    if not CREATOR_CONTACT_URL:
-        return None
-    markup = types.InlineKeyboardMarkup(row_width=1)
-    markup.add(
-        types.InlineKeyboardButton(
-            CREATOR_CONTACT_BUTTON_LABEL,
-            url=CREATOR_CONTACT_URL,
-        )
-    )
-    return markup
-
-
-def render_creator_branding_text() -> Optional[str]:
-    if not CREATOR_BRANDING_ENABLED:
-        return None
-    if not (CREATOR_CONTACT_URL or CREATOR_CONTACT_LABEL):
-        return None
-    template = (CREATOR_BRANDING_MESSAGE_TEMPLATE or "").strip()
-    if not template:
-        return None
-    label_value = CREATOR_CONTACT_LABEL or CREATOR_CONTACT_URL
-    label_html = _creator_label_html(label_value, CREATOR_CONTACT_URL)
-    context = {
-        "link": CREATOR_CONTACT_URL or "",
-        "label": label_value or "",
-        "label_html": label_html or escape(label_value or ""),
-    }
-    try:
-        return template.format(**context)
-    except KeyError:
-        return template.replace("{link}", context["link"])
-
-
-def send_creator_branding_banner(chat_id: int) -> None:
-    if not is_creator_branding_active():
-        return
-    message_text = render_creator_branding_text()
-    if not message_text:
-        return
-    try:
-        bot.send_message(
-            chat_id,
-            message_text,
-            disable_web_page_preview=True,
-            parse_mode="HTML",
-        )
-    except ApiException as exc:
-        logger.debug("Failed to send creator branding banner: %s", exc)
 
 
 GAME_RULES: Dict[str, Dict[str, Any]] = {
@@ -1137,15 +1024,10 @@ class CryptoPayClient:
         logger.info("Crypto Pay API request: method=%s, url=%s, payload=%s", method, url, safe_payload)
         try:
             logger.info("Sending POST request to %s...", url)
-            # Explicitly encode JSON with UTF-8 to handle emoji and unicode characters
-            json_data = json.dumps(payload or {}, ensure_ascii=False)
             response = self._session.post(
                 url,
-                headers={
-                    "Crypto-Pay-API-Token": self._token,
-                    "Content-Type": "application/json; charset=utf-8",
-                },
-                data=json_data.encode('utf-8'),
+                headers={"Crypto-Pay-API-Token": self._token},
+                json=payload or {},
                 timeout=self._timeout,
             )
             logger.info("Got response from Crypto Pay: status=%s", response.status_code)
@@ -1774,9 +1656,6 @@ class Database:
                 if 'required_channels' not in perm_list:
                     perm_list.append('required_channels')
                     needs_update = True
-                if VIP_FEATURES_ENABLED and 'mines_chance' not in perm_list:
-                    perm_list.append('mines_chance')
-                    needs_update = True
                 
                 if needs_update:
                     new_perms = ','.join(perm_list)
@@ -1832,9 +1711,9 @@ class Database:
             row = cur.fetchone()
             if not row or not row[0]:
                 # Если permissions не установлен, возвращаем все разделы
-                base_permissions = [
+                return [
                     "financial",
-                    "multipliers",
+                    "multipliers", 
                     "links",
                     "design",
                     "manage_admins",
@@ -1847,11 +1726,8 @@ class Database:
                     "test_dice",
                     "broadcast",
                     "promo_codes",
-                    "required_channels",
+                    "required_channels"
                 ]
-                if VIP_FEATURES_ENABLED:
-                    base_permissions.append("mines_chance")
-                return base_permissions
             return row[0].split(",")
     
     def update_admin_permissions(self, user_id: int, permissions: str) -> None:
@@ -2470,28 +2346,6 @@ class StateManager:
             return result
 
 
-def get_configured_mines_safe_chance(
-    settings_override: Optional[Dict[str, str]] = None,
-) -> Optional[float]:
-    """
-    Returns normalized probability (0..1) for VIP-controlled mines safe chance.
-    """
-    if not VIP_FEATURES_ENABLED:
-        return None
-    settings = settings_override or db.get_settings()
-    raw_value = (settings.get("mines_safe_chance") or "").strip()
-    if not raw_value:
-        return None
-    try:
-        numeric_value = float(raw_value.replace(",", "."))
-    except ValueError:
-        return None
-    numeric_value = max(0.0, min(numeric_value, 100.0))
-    if numeric_value <= 0:
-        return None
-    return numeric_value / 100.0
-
-
 @dataclass
 class MinesSession:
     session_id: str
@@ -2514,7 +2368,6 @@ class MinesSession:
     is_active: bool = True
     created_at: float = field(default_factory=time.time)
     play_panel_message_id: Optional[int] = None
-    safe_chance: Optional[float] = None
 
 
 MINES_BOARD_SIZE = 5
@@ -3118,13 +2971,6 @@ def build_about_view() -> tuple[str, types.InlineKeyboardMarkup]:
         buttons.append(types.InlineKeyboardButton("⭐️ Отзывы", url=settings["reviews_link"]))
     if buttons:
         markup.add(*buttons)
-    if CREATOR_BRANDING_ENABLED and CREATOR_CONTACT_URL:
-        markup.add(
-            types.InlineKeyboardButton(
-                CREATOR_CONTACT_BUTTON_LABEL,
-                url=CREATOR_CONTACT_URL,
-            )
-        )
 
     text = (
         "<b>ℹ️ О боте</b>\n"
@@ -3601,10 +3447,6 @@ def build_admin_menu_markup(user_id: int) -> types.InlineKeyboardMarkup:
     all_sections = [
         ("financial", "💰 Финансовые настройки"),
         ("multipliers", "🎮 Игровые множители"),
-    ]
-    if VIP_FEATURES_ENABLED:
-        all_sections.append(("mines_chance", "🎯 Шанс в «Минах»"))
-    all_sections.extend([
         ("links", "🔗 Ссылки и чаты"),
         ("design", "🎨 Оформление"),
         ("manage_admins", "👥 Управление админами"),
@@ -3618,7 +3460,7 @@ def build_admin_menu_markup(user_id: int) -> types.InlineKeyboardMarkup:
         ("broadcast", "📢 Рассылка"),
         ("promo_codes", "🎁 Промокоды"),
         ("required_channels", "📢 ОП каналы (подписка)"),
-    ])
+    ]
     
     markup = types.InlineKeyboardMarkup(row_width=1)
     for section_id, section_name in all_sections:
@@ -3733,9 +3575,6 @@ def command_start(message: types.Message) -> None:
             parse_mode="HTML"
         )
     
-    if is_creator_branding_active():
-        send_creator_branding_banner(message.chat.id)
-    
     # Сразу показываем игры
     send_play(message)
 
@@ -3811,10 +3650,6 @@ def handle_text(message: types.Message) -> None:
         if user_state.state == "awaiting_admin_setting":
             logger.info("Routing to process_admin_setting for user %s", message.from_user.id)
             process_admin_setting(message, user_state)
-            return
-        if user_state.state == "awaiting_manual_withdraw_link":
-            logger.info("Routing to process_manual_withdraw_link for admin %s", message.from_user.id)
-            process_manual_withdraw_link(message, user_state)
             return
         if user_state.state == "awaiting_reserve_amount":
             logger.info("Routing to process_reserve_amount for user %s", message.from_user.id)
@@ -4584,7 +4419,6 @@ def initialize_mines_session(
     target_label: str,
     multiplier_key: Optional[str],
     play_panel_message_id: Optional[int],
-    safe_chance: Optional[float] = None,
 ) -> MinesSession:
     if mine_count >= MINES_TOTAL_CELLS:
         raise ValueError("Mine count must be less than total cells")
@@ -4606,7 +4440,6 @@ def initialize_mines_session(
         current_multiplier=Decimal("1.00"),
         current_payout=stake_amount,
         play_panel_message_id=play_panel_message_id,
-        safe_chance=safe_chance,
     )
     register_mines_session(session)
     return session
@@ -4666,7 +4499,6 @@ def start_mines_game(
         remove_mines_session(existing_session)
 
     target_label = option.get("label") or f"{mine_count} мин"
-    safe_chance = get_configured_mines_safe_chance()
 
     try:
         session = initialize_mines_session(
@@ -4680,7 +4512,6 @@ def start_mines_game(
             target_label=target_label,
             multiplier_key=multiplier_key,
             play_panel_message_id=panel_message_id,
-            safe_chance=safe_chance,
         )
     except ValueError:
         bot.reply_to(message, "Не удалось подготовить поле. Попробуйте другой уровень сложности.")
@@ -4912,21 +4743,6 @@ def handle_mines_open_cell(
             active = True
         already_opened = cell_index in session.revealed if active else False
         is_mine = cell_index in session.mine_positions if active else False
-        if (
-            active
-            and not already_opened
-            and session.safe_chance is not None
-            and 0 < session.safe_chance < 1
-        ):
-            roll = random.random()
-            if roll < session.safe_chance:
-                if is_mine:
-                    session.mine_positions.discard(cell_index)
-                    is_mine = False
-            else:
-                if not is_mine:
-                    session.mine_positions.add(cell_index)
-                    is_mine = True
         if active and not already_opened and not is_mine:
             session.safe_steps += 1
             order = session.safe_steps
@@ -7008,40 +6824,6 @@ def handle_admin_callback(call: types.CallbackQuery) -> None:
         bot.answer_callback_query(call.id)
         return
 
-    if action == "mines_chance":
-        if not VIP_FEATURES_ENABLED:
-            bot.answer_callback_query(call.id, "Раздел доступен после покупки VIP.", show_alert=True)
-            return
-        current_value = settings.get("mines_safe_chance", "0").strip() or "0"
-        display_value = format_setting_display("mines_safe_chance", current_value)
-        text_lines = [
-            "<b>🎯 Шанс безопасной клетки</b>",
-            "",
-            "Укажите вероятность (в процентах) того, что игрок откроет безопасную клетку в игре «Мины».",
-            "Значение 0 выключает принудительный шанс и оставляет стандартный рандом.",
-            "",
-            f"Текущее значение: <code>{display_value}</code>",
-        ]
-        markup = types.InlineKeyboardMarkup(row_width=1)
-        markup.add(
-            types.InlineKeyboardButton(
-                "✏️ Изменить шанс", callback_data="admin:set:mines_safe_chance"
-            )
-        )
-        markup.add(
-            types.InlineKeyboardButton(
-                "◀️ Назад", callback_data="admin:back_to_menu"
-            )
-        )
-        bot.edit_message_text(
-            text="\n".join(text_lines),
-            chat_id=call.message.chat.id,
-            message_id=call.message.message_id,
-            reply_markup=markup,
-        )
-        bot.answer_callback_query(call.id)
-        return
-
     if action == "links":
         link_keys = [
             "chat_link",
@@ -8834,58 +8616,82 @@ def handle_admin_callback(call: types.CallbackQuery) -> None:
             bot.answer_callback_query(call.id, "Ошибка данных транзакции")
             return
         
+        # Создаем чек для пользователя через Crypto Pay
         amount = Decimal(str(transaction["amount"]))
-        asset = transaction.get("asset") or settings.get("crypto_pay_asset", DEFAULT_SETTINGS["crypto_pay_asset"])
+        transfer_amount = Decimal(transfer_amount_str)
+        asset = transaction["asset"] if "asset" in transaction.keys() else settings.get("crypto_pay_asset", DEFAULT_SETTINGS["crypto_pay_asset"])
+        
+        if not crypto_pay_client.is_configured:
+            bot.answer_callback_query(call.id, "Crypto Pay не настроен", show_alert=True)
+            return
+        
+        # Создаем чек
         try:
-            user_row = db.get_user(transaction["user_id"])
-            username = user_row["username"]
-        except ValueError:
-            user_row = None
-            username = None
-        user_label = (
-            f"@{username}" if username else f"ID: {transaction['user_id']}"
+            check_data = crypto_pay_client.create_check({
+                "asset": asset,
+                "amount": transfer_amount_str,
+            })
+        except CryptoPayError as exc:
+            logger.warning("Failed to create check for withdraw %s: %s", transaction_id, exc)
+            bot.answer_callback_query(call.id, f"Ошибка создания чека: {exc}", show_alert=True)
+            return
+        
+        if not check_data:
+            bot.answer_callback_query(call.id, "Ошибка создания чека", show_alert=True)
+            return
+        
+        check_id = check_data.get("check_id")
+        bot_check_url = check_data.get("bot_check_url")
+        
+        # Обновляем транзакцию
+        db.update_transaction(
+            transaction_id,
+            status="completed",
+            external_id=str(check_id) if check_id is not None else None,
+            comment=f"Manual withdraw - check #{check_id}",
         )
-        prompt_lines = [
-            "<b>🧾 Обработка заявки на вывод</b>",
-            f"ID заявки: <code>{transaction_id}</code>",
-            f"Пользователь: {user_label}",
-            f"Сумма на вывод: <b>{format_money(amount)} $</b>",
-            f"К выплате: <b>{transfer_amount_str} {asset}</b>",
-            "",
-            "Отправьте ссылку на чек/платёж, которую нужно переслать пользователю.",
-            "Для отмены напишите «отмена».",
-        ]
-        prompt_message_id = call.message.message_id
+        
+        # Отправляем чек пользователю
+        user_id = transaction["user_id"]
+        user_text = (
+            f"✅ <b>Ваша заявка на вывод одобрена!</b>\n\n"
+            f"Сумма: <b>{format_money(amount)} $</b>\n"
+            f"Активируйте чек для получения средств:"
+        )
+        
+        user_markup = types.InlineKeyboardMarkup(row_width=1)
+        if bot_check_url:
+            user_markup.add(
+                types.InlineKeyboardButton(
+                    "💳 Получить средства",
+                    url=bot_check_url
+                )
+            )
+        
+        try:
+            bot.send_message(user_id, user_text, reply_markup=user_markup)
+        except ApiException as exc:
+            logger.warning("Failed to send check to user %s: %s", user_id, exc)
+        
+        # Обновляем сообщение админа
         try:
             bot.edit_message_text(
-                text="\n".join(prompt_lines),
                 chat_id=call.message.chat.id,
                 message_id=call.message.message_id,
-                reply_markup=types.InlineKeyboardMarkup().add(
-                    types.InlineKeyboardButton("◀️ Назад", callback_data="admin:back_to_menu")
-                ),
+                text=f"{call.message.text}\n\n✅ <b>Обработано</b>\nЧек отправлен пользователю.",
+                reply_markup=None,
             )
         except ApiException:
-            sent_prompt = bot.send_message(
-                call.message.chat.id,
-                "\n".join(prompt_lines),
-                reply_markup=types.InlineKeyboardMarkup().add(
-                    types.InlineKeyboardButton("◀️ Назад", callback_data="admin:back_to_menu")
-                ),
-            )
-            prompt_message_id = sent_prompt.message_id
-        states.set(
+            pass
+        
+        bot.answer_callback_query(call.id, "Заявка обработана, чек отправлен пользователю")
+        logger.info(
+            "Admin %s processed withdraw %s for user %s, check_id=%s",
             call.from_user.id,
-            "awaiting_manual_withdraw_link",
-            transaction_id=transaction_id,
-            user_id=transaction["user_id"],
-            amount=str(transaction["amount"]),
-            transfer_amount=transfer_amount_str,
-            asset=asset,
-            admin_prompt_chat_id=call.message.chat.id,
-            admin_prompt_message_id=prompt_message_id,
+            transaction_id,
+            user_id,
+            check_id,
         )
-        bot.answer_callback_query(call.id, "Отправьте ссылку на чек.")
         return
 
     if action.startswith("reject_withdraw:"):
@@ -9008,23 +8814,6 @@ def process_admin_setting(message: types.Message, user_state: PendingState) -> N
             states.pop(message.from_user.id)
             return
         value = f"{numeric:.2f}"
-    elif setting_key == "mines_safe_chance":
-        if not VIP_FEATURES_ENABLED:
-            bot.reply_to(message, "Настройка доступна только после покупки VIP-статуса.")
-            states.pop(message.from_user.id)
-            return
-        try:
-            numeric = Decimal(value.replace(",", "."))
-        except InvalidOperation:
-            bot.reply_to(message, "Введите число от 0 до 100")
-            states.pop(message.from_user.id)
-            return
-        if numeric < Decimal("0"):
-            numeric = Decimal("0")
-        if numeric > Decimal("100"):
-            numeric = Decimal("100")
-        numeric = numeric.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
-        value = f"{numeric:.2f}".rstrip("0").rstrip(".") or "0"
 
     db.set_setting(setting_key, value)
     if setting_key == "crypto_pay_api_token":
@@ -9059,101 +8848,6 @@ def process_admin_setting(message: types.Message, user_state: PendingState) -> N
 
     bot.reply_to(message, confirmation_text)
 
-
-def process_manual_withdraw_link(message: types.Message, user_state: PendingState) -> None:
-    if not db.is_admin(message.from_user.id):
-        bot.reply_to(message, "Доступ запрещён.")
-        states.pop(message.from_user.id)
-        return
-    incoming_text = (message.text or "").strip()
-    if not incoming_text:
-        bot.reply_to(message, "Ссылка не может быть пустой.")
-        return
-    if incoming_text.lower() in CANCEL_KEYWORDS:
-        states.pop(message.from_user.id)
-        admin_chat_id = user_state.payload.get("admin_prompt_chat_id")
-        admin_message_id = user_state.payload.get("admin_prompt_message_id")
-        if admin_chat_id and admin_message_id:
-            try:
-                bot.edit_message_text(
-                    chat_id=admin_chat_id,
-                    message_id=int(admin_message_id),
-                    text="Обработка заявки отменена.",
-                    reply_markup=None,
-                )
-            except ApiException:
-                pass
-        bot.reply_to(message, "Обработка заявки отменена.")
-        return
-    if not incoming_text.lower().startswith(("http://", "https://")):
-        bot.reply_to(message, "Пришлите ссылку, начинающуюся с http:// или https://")
-        return
-    transaction_id = user_state.payload.get("transaction_id")
-    if not transaction_id:
-        bot.reply_to(message, "Не удалось найти заявку. Попробуйте снова из админ-панели.")
-        states.pop(message.from_user.id)
-        return
-    try:
-        transaction = db.get_transaction(int(transaction_id))
-    except (ValueError, sqlite3.Error):
-        bot.reply_to(message, "Заявка не найдена или уже обработана.")
-        states.pop(message.from_user.id)
-        return
-    if transaction["status"] != "pending":
-        bot.reply_to(message, "Заявка уже обработана или отменена.")
-        states.pop(message.from_user.id)
-        return
-    settings = db.get_settings()
-    transfer_amount_str = user_state.payload.get("transfer_amount") or str(transaction["amount"])
-    asset = user_state.payload.get("asset") or transaction.get("asset") or settings.get("crypto_pay_asset", DEFAULT_SETTINGS["crypto_pay_asset"])
-    amount = Decimal(str(transaction["amount"]))
-    try:
-        transfer_amount = Decimal(str(transfer_amount_str))
-    except InvalidOperation:
-        transfer_amount = amount
-    db.update_transaction(
-        int(transaction_id),
-        status="completed",
-        external_url=incoming_text,
-        comment="Manual withdraw link provided",
-    )
-    user_markup = types.InlineKeyboardMarkup(row_width=1)
-    user_markup.add(types.InlineKeyboardButton("💳 Получить чек", url=incoming_text))
-    user_text = (
-        f"✅ <b>Ваша заявка на вывод одобрена!</b>\n\n"
-        f"Сумма: <b>{format_money(amount)} $</b>\n"
-        f"К получению: <b>{format_money(transfer_amount)} {asset}</b>\n\n"
-        "Нажмите кнопку ниже, чтобы получить чек."
-    )
-    user_id = transaction["user_id"]
-    try:
-        bot.send_message(user_id, user_text, reply_markup=user_markup)
-    except ApiException as exc:
-        logger.warning("Failed to send manual withdraw check to user %s: %s", user_id, exc)
-        bot.reply_to(
-            message,
-            "Чек сохранён, но не удалось отправить сообщение пользователю. Проверьте блокировку у пользователя.",
-        )
-    admin_chat_id = user_state.payload.get("admin_prompt_chat_id")
-    admin_message_id = user_state.payload.get("admin_prompt_message_id")
-    if admin_chat_id and admin_message_id:
-        try:
-            bot.edit_message_text(
-                chat_id=admin_chat_id,
-                message_id=int(admin_message_id),
-                text="✅ Заявка обработана. Ссылка отправлена пользователю.",
-                reply_markup=None,
-            )
-        except ApiException:
-            pass
-    bot.reply_to(message, "Ссылка отправлена пользователю.")
-    logger.info(
-        "Admin %s approved withdraw %s manually and sent link to user %s",
-        message.from_user.id,
-        transaction_id,
-        user_id,
-    )
-    states.pop(message.from_user.id)
 
 def process_reserve_amount(message: types.Message, user_state: PendingState) -> None:
     """Обработка суммы пополнения резерва админом."""

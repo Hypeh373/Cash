@@ -32,13 +32,11 @@ except ImportError:
 CREATOR_BOT_TOKEN = '8400644706:AAFjCQDxS73hvhizY4f3v94-vlXLkvqGHdQ'  # 👈 Вставь свой токен конструктора
 CRYPTO_PAY_TOKEN = '467156:AA0Mvgp0h5oKZaETFQZqdnCWUZSoPVpAT0W' # 👈 Получи его в @CryptoBot -> Crypto Pay -> Создать приложение
 
-ADMIN_ID = 5851731333 # 👈 ТВОЙ ID АДМИНИНИСТРАТОРА
+ADMIN_ID = 7585735331 # 👈 ТВОЙ ID АДМИНИНИСТРАТОРА
 # Поддержка нескольких глобальных админов (пример):
 # Добавьте сюда ID через запятую, чтобы дать доступ к админ-меню
 ADMIN_IDS = [
     ADMIN_ID,
-    5851731333,
-    7585735331
 ]
 MAX_BOTS_PER_USER = 5
 REF_BOT_SCRIPT_NAME = 'ref_bot.py'
@@ -47,14 +45,17 @@ CLICKER_BOT_SCRIPT_NAME = 'clicker_bot.py'
 ANONCHAT_BOT_SCRIPT_NAME = 'anonchatik.py'
 CASHLAIT_BOT_SCRIPT_NAME = 'cashlait_bot.py'
 DICELITE_BOT_SCRIPT_NAME = 'dicelite_bot.py'
+EXCHANGE_BOT_SCRIPT_NAME = 'exchange_bot.py'
 CLICKER_UNLOCK_CODE = '62927'
 ANONCHAT_UNLOCK_CODE = '67576'
 CASHLAIT_UNLOCK_CODE = '480034'
 DICELITE_UNLOCK_CODE = '915627'
+EXCHANGE_UNLOCK_CODE = '568754'
 CLICKER_GLOBAL_SETTING_KEY = 'clicker_global_unlocked'
 ANONCHAT_GLOBAL_SETTING_KEY = 'anonchat_global_unlocked'
 CASHLAIT_GLOBAL_SETTING_KEY = 'cashlait_global_unlocked'
 DICELITE_GLOBAL_SETTING_KEY = 'dicelite_global_unlocked'
+EXCHANGE_GLOBAL_SETTING_KEY = 'exchange_global_unlocked'
 CUSTOMIZATION_UNLOCK_CODE = '73839'
 CUSTOMIZATION_SETTING_KEY = 'customization_unlocked'
 CUSTOM_BUTTON_SETTING_PREFIX = 'custom_button_text_'
@@ -97,7 +98,47 @@ CUSTOM_TEXTS_META = {
         'supports_html': True,
         'single_line': False,
     },
+    'constructor_bot_link': {
+        'default': "https://t.me/MinxoCreate_bot",
+        'description': "Ссылка в кнопке 'Хочу такого же бота'",
+        'max_length': 128,
+        'supports_html': False,
+        'single_line': True,
+    },
+    'constructor_bot_link_text': {
+        'default': "🤖 Хочу такого же бота",
+        'description': "Текст кнопки 'Хочу такого же бота'",
+        'max_length': 64,
+        'supports_html': False,
+        'single_line': True,
+    },
 }
+
+def normalize_creator_link_value(value):
+    if not value:
+        return ""
+    trimmed = str(value).strip()
+    if not trimmed:
+        return ""
+    if trimmed.startswith("@"):
+        trimmed = trimmed[1:]
+    if not trimmed:
+        return ""
+    if trimmed.startswith("https://t.me/"):
+        return trimmed
+    if trimmed.startswith("t.me/"):
+        return f"https://{trimmed}"
+    return f"https://t.me/{trimmed}"
+
+
+def derive_creator_label_from_link(link_value):
+    if not link_value:
+        return ""
+    if link_value.startswith("https://t.me/"):
+        username = link_value.split("https://t.me/", 1)[1].strip("/")
+        if username:
+            return f"@{username}"
+    return link_value
 
 DEFAULT_BUTTON_TEXTS = {
     'main_create': "➕ Создать бота",
@@ -110,8 +151,9 @@ DEFAULT_BUTTON_TEXTS = {
     'create_stars': "⭐ Заработок Звёзд",
     'create_clicker': "🖱 Кликер",
     'create_anonchat': "💬 Анонимный чат",
-    'create_cashlait': "💼 CashLait",
+    'create_cashlait': "🚀 PR Бот",
     'create_dicelite': "🎲 DiceLite",
+    'create_exchange': "💱 Бот Обменник",
 }
 
 BUTTON_KEY_DESCRIPTIONS = {
@@ -127,6 +169,7 @@ BUTTON_KEY_DESCRIPTIONS = {
     'create_anonchat': 'Кнопка выбора типа "Анонимный чат"',
     'create_cashlait': 'Кнопка выбора типа "CashLait"',
     'create_dicelite': 'Кнопка выбора типа "DiceLite"',
+    'create_exchange': 'Кнопка выбора типа "Бот Обменник"',
 }
 
 MAIN_MENU_BUTTON_KEYS = [
@@ -145,6 +188,7 @@ BOT_CREATION_BUTTON_KEYS = [
     'create_anonchat',
     'create_cashlait',
     'create_dicelite',
+    'create_exchange',
 ]
 CUSTOMIZATION_RESET_COMMANDS = {'сброс', 'reset', 'default', 'стандарт'}
 DB_NAME = 'creator_data2.db'
@@ -291,6 +335,9 @@ def init_db():
         if 'dicelite_unlocked' not in user_columns:
             cursor.execute("ALTER TABLE users ADD COLUMN dicelite_unlocked BOOLEAN DEFAULT FALSE")
             logging.info("Колонка 'dicelite_unlocked' добавлена в таблицу 'users'.")
+        if 'exchange_unlocked' not in user_columns:
+            cursor.execute("ALTER TABLE users ADD COLUMN exchange_unlocked BOOLEAN DEFAULT FALSE")
+            logging.info("Колонка 'exchange_unlocked' добавлена в таблицу 'users'.")
 
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS bots (
@@ -392,6 +439,8 @@ def init_db():
             # DiceLite-specific settings
             'dicelite_crypto_pay_token': "TEXT",
             'dicelite_welcome_text': "TEXT",
+            # Exchange-specific settings
+            'exchange_welcome_text': "TEXT",
         }
         
         for col, col_type in new_columns.items():
@@ -423,6 +472,7 @@ def init_db():
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (ANONCHAT_GLOBAL_SETTING_KEY, '0'))
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (CASHLAIT_GLOBAL_SETTING_KEY, '0'))
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (DICELITE_GLOBAL_SETTING_KEY, '0'))
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, '0')", (EXCHANGE_GLOBAL_SETTING_KEY,))
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, '0')", (CUSTOMIZATION_SETTING_KEY,))
 
         # Синхронизируем глобальный доступ к типу 'Кликер' с данными пользователей
@@ -484,6 +534,21 @@ def init_db():
             logging.info("Глобальный доступ к типу 'DiceLite' восстановлен автоматически на основании существующих пользователей.")
         if dicelite_global_enabled:
             cursor.execute("UPDATE users SET dicelite_unlocked = 1 WHERE dicelite_unlocked IS NULL OR dicelite_unlocked = 0")
+
+        # Синхронизируем глобальный доступ к типу 'Бот Обменник' с данными пользователей
+        cursor.execute("SELECT value FROM settings WHERE key = ?", (EXCHANGE_GLOBAL_SETTING_KEY,))
+        exchange_setting_row = cursor.fetchone()
+        exchange_global_enabled = False
+        if exchange_setting_row and exchange_setting_row[0] is not None:
+            exchange_global_enabled = str(exchange_setting_row[0]).strip().lower() in ('1', 'true', 'yes', 'on', 'enabled')
+        cursor.execute("SELECT 1 FROM users WHERE exchange_unlocked = 1 LIMIT 1")
+        exchange_unlocked_exists = cursor.fetchone() is not None
+        if exchange_unlocked_exists and not exchange_global_enabled:
+            cursor.execute("REPLACE INTO settings (key, value) VALUES (?, '1')", (EXCHANGE_GLOBAL_SETTING_KEY,))
+            exchange_global_enabled = True
+            logging.info("Глобальный доступ к типу 'Бот Обменник' восстановлен автоматически на основании существующих пользователей.")
+        if exchange_global_enabled:
+            cursor.execute("UPDATE users SET exchange_unlocked = 1 WHERE exchange_unlocked IS NULL OR exchange_unlocked = 0")
 
         conn.commit()
         logging.info("База данных успешно инициализирована/обновлена.")
@@ -685,6 +750,7 @@ def get_bot_creation_button_texts():
         'anonchat': get_custom_button_text('create_anonchat'),
         'cashlait': get_custom_button_text('create_cashlait'),
         'dicelite': get_custom_button_text('create_dicelite'),
+        'exchange': get_custom_button_text('create_exchange'),
     }
 
 def is_clicker_unlocked_globally():
@@ -767,6 +833,26 @@ def unlock_dicelite_globally():
         logging.error(f"Не удалось установить глобальный доступ к DiceLite: {exc}")
         raise
 
+def is_exchange_unlocked_globally():
+    try:
+        value = get_setting(EXCHANGE_GLOBAL_SETTING_KEY)
+    except Exception:
+        value = None
+    if value is None:
+        return False
+    return str(value).strip().lower() in ('1', 'true', 'yes', 'on', 'enabled')
+
+def unlock_exchange_globally():
+    try:
+        set_setting(EXCHANGE_GLOBAL_SETTING_KEY, '1')
+        db_execute(
+            "UPDATE users SET exchange_unlocked = 1 WHERE exchange_unlocked IS NULL OR exchange_unlocked = 0",
+            commit=True
+        )
+    except Exception as exc:
+        logging.error(f"Не удалось установить глобальный доступ к Exchange Bot: {exc}")
+        raise
+
 def get_user(user_id, username=None):
     user = row_to_dict(db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True))
     if user is None: 
@@ -825,6 +911,19 @@ def get_user(user_id, username=None):
                     commit=True
                 )
                 user = row_to_dict(db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True))
+
+            needs_sync_exchange = (
+                hasattr(user, 'keys')
+                and 'exchange_unlocked' in user.keys()
+                and user['exchange_unlocked'] in (None, 0, '0', False)
+            )
+            if needs_sync_exchange and is_exchange_unlocked_globally():
+                db_execute(
+                    "UPDATE users SET exchange_unlocked = 1 WHERE user_id = ?",
+                    (user_id,),
+                    commit=True
+                )
+                user = row_to_dict(db_execute("SELECT * FROM users WHERE user_id = ?", (user_id,), fetchone=True))
         except Exception as exc:
             logging.error(f"Не удалось синхронизировать флаги разблокировки для пользователя {user_id}: {exc}")
     return user
@@ -857,6 +956,7 @@ def delete_bot_from_db(bot_id):
         'clicker': f"dbs/bot_{bot_id}_clicker_data.db",
         'cashlait': f"dbs/bot_{bot_id}_cashlait.db",
         'dicelite': f"dbs/bot_{bot_id}_dicelite.db",
+        'exchange': f"dbs/bot_{bot_id}_exchange.db",
     }
     db_filename = db_filename_map.get(bot_info['bot_type'])
     try:
@@ -923,6 +1023,9 @@ def start_bot_process(bot_id):
                  env['FLYER_API_KEY'] = bot_info['clicker_flyer_api_key']
         elif bot_info['bot_type'] == 'anonchat':
             script_name = ANONCHAT_BOT_SCRIPT_NAME
+            env['ANONCHAT_DB'] = os.path.abspath(f"dbs/bot_{bot_id}_anonchat.db")
+            if bot_info['bot_token']:
+                 env['ANONCHAT_BOT_TOKEN'] = bot_info['bot_token']
             if bot_info['anonchat_flyer_api_key']:
                  env['ANONCHAT_FLYER_API_KEY'] = bot_info['anonchat_flyer_api_key']
             if bot_info['anonchat_flyer_tasks_limit']:
@@ -941,6 +1044,12 @@ def start_bot_process(bot_id):
                 env['CASHLAIT_CURRENCY_SYMBOL'] = bot_info['cashlait_currency_symbol']
             if bot_info['cashlait_welcome_text']:
                 env['CASHLAIT_WELCOME_TEXT'] = bot_info['cashlait_welcome_text']
+            
+            # Pass custom branding info
+            link_text = get_custom_text('constructor_bot_link_text')
+            link_url = get_custom_text('constructor_bot_link')
+            if link_text: env['CONSTRUCTOR_LINK_TEXT'] = link_text
+            if link_url: env['CONSTRUCTOR_LINK_URL'] = link_url
         elif bot_info['bot_type'] == 'dicelite':
             script_name = DICELITE_BOT_SCRIPT_NAME
             env['DICELITE_DB'] = os.path.abspath(f"dbs/bot_{bot_id}_dicelite.db")
@@ -950,6 +1059,36 @@ def start_bot_process(bot_id):
                 env['DICELITE_CRYPTO_PAY_TOKEN'] = bot_info['dicelite_crypto_pay_token']
             if bot_info.get('dicelite_welcome_text'):
                 env['DICELITE_WELCOME_TEXT'] = bot_info['dicelite_welcome_text']
+            # Creator branding for DiceLite
+            link_raw = get_custom_text('constructor_bot_link')
+            link_url = normalize_creator_link_value(link_raw)
+            link_text = get_custom_text('constructor_bot_link_text')
+            label_value = derive_creator_label_from_link(link_url)
+            if link_url:
+                env['CREATOR_CONTACT_URL'] = link_url
+            if label_value:
+                env['CREATOR_CONTACT_LABEL'] = label_value
+            if link_text:
+                env['CREATOR_CONTACT_BUTTON_LABEL'] = link_text
+            env['CREATOR_BRANDING'] = 'true' if (link_url and not bot_info['vip_status']) else 'false'
+        elif bot_info['bot_type'] == 'exchange':
+            script_name = EXCHANGE_BOT_SCRIPT_NAME
+            env['EXCHANGE_DB'] = os.path.abspath(f"dbs/bot_{bot_id}_exchange.db")
+            if bot_info['bot_token']:
+                env['EXCHANGE_BOT_TOKEN'] = bot_info['bot_token']
+            link_raw = get_custom_text('constructor_bot_link')
+            link_url = normalize_creator_link_value(link_raw)
+            link_text = get_custom_text('constructor_bot_link_text')
+            label_value = derive_creator_label_from_link(link_url)
+            if link_url:
+                env['CREATOR_CONTACT_URL'] = link_url
+            if label_value:
+                env['CREATOR_CONTACT_LABEL'] = label_value
+            if link_text:
+                env['CREATOR_CONTACT_BUTTON_LABEL'] = link_text
+            env['CREATOR_BRANDING'] = 'true' if (link_url and not bot_info['vip_status']) else 'false'
+            if bot_info.get('exchange_welcome_text'):
+                env['EXCHANGE_WELCOME_TEXT'] = bot_info['exchange_welcome_text']
         else:
             return False, "Неизвестный тип бота."
         
@@ -1125,6 +1264,17 @@ def create_bot_type_menu(user_id=None):
             dicelite_available = False
     if dicelite_available:
         markup.add(types.InlineKeyboardButton(creation_buttons.get('dicelite', "🎲 DiceLite"), callback_data="create_bot_dicelite"))
+
+    exchange_available = is_exchange_unlocked_globally()
+    if not exchange_available and user_id is not None:
+        try:
+            user = get_user(user_id)
+            exchange_available = bool(user.get('exchange_unlocked', False)) if user else False
+        except Exception:
+            exchange_available = False
+    if exchange_available:
+        markup.add(types.InlineKeyboardButton(creation_buttons.get('exchange', "💱 Бот Обменник"), callback_data="create_bot_exchange"))
+
     return markup
 
 def create_my_bots_menu(user_id):
@@ -1142,7 +1292,8 @@ def create_my_bots_menu(user_id):
                 'clicker': '🖱',
                 'anonchat': '💬',
                 'cashlait': '💼',
-        'dicelite': '🎲',
+                'dicelite': '🎲',
+                'exchange': '💱',
             }
             bot_type_icon = type_icons.get(bot_item['bot_type'], '🎨')
             vip_icon = "⭐" if bot_item['vip_status'] else ""
@@ -1160,7 +1311,7 @@ def create_bot_actions_menu(bot_id):
     
     markup.add(types.InlineKeyboardButton(status_text, callback_data="dummy"))
     
-    if bot_info['bot_type'] in ['ref', 'stars', 'clicker', 'anonchat', 'cashlait']:
+    if bot_info['bot_type'] in ['ref', 'stars', 'clicker', 'anonchat', 'cashlait', 'exchange']:
         markup.add(types.InlineKeyboardButton("⚙️ Конфигурация", callback_data=f"config_{bot_id}"),
                    types.InlineKeyboardButton("💰 Доп. заработок (Flyer)", callback_data=f"dop_zarabotok_{bot_id}"))
     elif bot_info['bot_type'] == 'dicelite':
@@ -1343,6 +1494,29 @@ def create_dicelite_bot_config_menu(bot_id):
         types.InlineKeyboardButton("👥 Админы", callback_data=f"admins_{bot_id}_manage"),
     )
     markup.add(types.InlineKeyboardButton("📄 Логи", callback_data=f"logs_{bot_id}_get"))
+    markup.add(types.InlineKeyboardButton("⬅️ Главное меню бота", callback_data=f"actions_{bot_id}"))
+    return markup
+
+def create_exchange_bot_config_menu(bot_id):
+    bot_info = get_bot_by_id(bot_id)
+    if not bot_info:
+        return None
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    if bot_info['status'] == 'running':
+        markup.add(
+            types.InlineKeyboardButton("⏹️ Остановить", callback_data=f"control_{bot_id}_stop"),
+            types.InlineKeyboardButton("🔄 Перезапустить", callback_data=f"control_{bot_id}_restart"),
+        )
+    else:
+        markup.add(types.InlineKeyboardButton("▶️ Запустить", callback_data=f"control_{bot_id}_start"))
+
+    markup.add(
+        types.InlineKeyboardButton("🔑 Токен бота", callback_data=f"edit_{bot_id}_bot_token"),
+        types.InlineKeyboardButton("👋 Приветствие", callback_data=f"edit_{bot_id}_exchange_welcome_text"),
+    )
+    markup.add(
+        types.InlineKeyboardButton("👥 Админы", callback_data=f"admins_{bot_id}_manage"),
+    )
     markup.add(types.InlineKeyboardButton("⬅️ Главное меню бота", callback_data=f"actions_{bot_id}"))
     return markup
 
@@ -2546,7 +2720,7 @@ def process_state_input(message):
         elif setting in ['anonchat_crypto_api_token', 'anonchat_flyer_api_key']:
             cleaned = '' if new_value_raw.strip() == '-' else new_value_raw.strip()
             update_bot_setting(bot_id, setting, cleaned)
-        elif setting in ['cashlait_flyer_api_key', 'cashlait_crypto_pay_token', 'cashlait_currency_symbol', 'dicelite_crypto_pay_token', 'dicelite_welcome_text']:
+        elif setting in ['cashlait_flyer_api_key', 'cashlait_crypto_pay_token', 'cashlait_currency_symbol', 'dicelite_crypto_pay_token', 'dicelite_welcome_text', 'exchange_welcome_text']:
             cleaned = '' if new_value_raw.strip() == '-' else new_value_raw.strip()
             update_bot_setting(bot_id, setting, cleaned)
         
@@ -2570,6 +2744,8 @@ def process_state_input(message):
             config_menu = create_cashlait_bot_config_menu(bot_id)
         elif bot_info['bot_type'] == 'dicelite':
             config_menu = create_dicelite_bot_config_menu(bot_id)
+        elif bot_info['bot_type'] == 'exchange':
+            config_menu = create_exchange_bot_config_menu(bot_id)
         bot.send_message(user_id, f"⚙️ Меню конфигурации бота {name}", reply_markup=config_menu)
         if error_text: bot.send_message(user_id, error_text, parse_mode="HTML")
         return
@@ -2898,6 +3074,16 @@ def process_state_input(message):
                 config_menu = create_ref_bot_config_menu(bot_id)
             elif bot_info['bot_type'] == 'stars':
                 config_menu = create_stars_bot_config_menu(bot_id)
+            elif bot_info['bot_type'] == 'clicker':
+                config_menu = create_clicker_bot_config_menu(bot_id)
+            elif bot_info['bot_type'] == 'anonchat':
+                config_menu = create_anonchat_bot_config_menu(bot_id)
+            elif bot_info['bot_type'] == 'cashlait':
+                config_menu = create_cashlait_bot_config_menu(bot_id)
+            elif bot_info['bot_type'] == 'dicelite':
+                config_menu = create_dicelite_bot_config_menu(bot_id)
+            elif bot_info['bot_type'] == 'exchange':
+                config_menu = create_exchange_bot_config_menu(bot_id)
             
             bot.edit_message_text(text, user_id, message_id, reply_markup=config_menu, parse_mode="HTML")
         except ValueError:
@@ -3016,6 +3202,8 @@ def handle_admin_callbacks(call):
             markup = types.InlineKeyboardMarkup(row_width=1)
             markup.add(types.InlineKeyboardButton(f"💰 Изменить цену DiceLite ({dicelite_price} $)", callback_data="admin_dicelite_set_price"))
             markup.add(types.InlineKeyboardButton("🎁 Выдать DiceLite бота", callback_data="admin_dicelite_grant"))
+            markup.add(types.InlineKeyboardButton("🔗 Ссылка на креатора", callback_data="admin_dicelite_link"))
+            markup.add(types.InlineKeyboardButton("📝 Текст кнопки", callback_data="admin_dicelite_linktext"))
             markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back"))
             try:
                 bot.edit_message_text("🎲 Управление DiceLite ботом:", user_id, call.message.message_id, reply_markup=markup)
@@ -3055,6 +3243,16 @@ def handle_admin_callbacks(call):
                     reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_dicelite_manage"))
                 )
             set_user_state(user_id, {'action': 'admin_grant_dicelite', 'message_id': msg.message_id, 'call_id': call.id})
+            return
+
+        if sub_action in ("link", "linktext"):
+            key_map = {
+                'link': 'constructor_bot_link',
+                'linktext': 'constructor_bot_link_text',
+            }
+            text_key = key_map.get(sub_action)
+            if text_key:
+                prompt_custom_text_edit(user_id, text_key, call.message.message_id, back_callback="admin_dicelite_manage")
             return
 
         return
@@ -4492,6 +4690,28 @@ if __name__ == '__main__':
             bot.send_message(user_id, get_custom_text('create_bot_prompt'), parse_mode="HTML", reply_markup=create_bot_type_menu(user_id))
             return
 
+        # Secret code to unlock 'Exchange' bot type for this user
+        if text_value == EXCHANGE_UNLOCK_CODE:
+            already_global = is_exchange_unlocked_globally()
+            try:
+                db_execute("UPDATE users SET exchange_unlocked = 1 WHERE user_id = ?", (user_id,), commit=True)
+            except Exception as e:
+                logging.error(f"Не удалось установить флаг exchange_unlocked для пользователя {user_id}: {e}")
+            if not already_global:
+                try:
+                    unlock_exchange_globally()
+                    logging.info(f"Пользователь {user_id} открыл доступ к типу 'Бот Обменник' для всех пользователей")
+                except Exception as e:
+                    logging.error(f"Не удалось открыть доступ к Бот Обменник глобально: {e}")
+            confirmation_text = (
+                "✅ Тип бота 'Бот Обменник' уже был доступен всем пользователям!"
+                if already_global
+                else "✅ Новый тип бота 'Бот Обменник' теперь доступен всем пользователям!"
+            )
+            bot.send_message(user_id, confirmation_text, parse_mode="HTML")
+            bot.send_message(user_id, get_custom_text('create_bot_prompt'), parse_mode="HTML", reply_markup=create_bot_type_menu(user_id))
+            return
+
         if text_value == CUSTOMIZATION_UNLOCK_CODE and is_admin(user_id):
             if is_customization_unlocked():
                 bot.send_message(user_id, "ℹ️ Режим кастомизации уже активирован.")
@@ -5113,6 +5333,10 @@ if __name__ == '__main__':
                         bot.answer_callback_query(call.id, "❌ Не удалось создать счет. Попробуйте позже.", show_alert=True)
                 run_async_task(create_dicelite_invoice_async())
                 return
+            if call.data == "create_bot_exchange":
+                bot.answer_callback_query(call.id, "Бот создается...")
+                bot_id = create_bot_in_db(user_id, 'exchange')
+                bot.edit_message_text(f"💱 Бот 'Обменник' #{bot_id} создан! Теперь он в списке ваших ботов:", user_id, call.message.message_id, reply_markup=create_my_bots_menu(user_id)); return
             # Удалены: create_bot_creator
 
             data = call.data.split('_')
@@ -5167,6 +5391,8 @@ if __name__ == '__main__':
                     config_menu = create_cashlait_bot_config_menu(bot_id)
                 elif bot_info['bot_type'] == 'dicelite':
                     config_menu = create_dicelite_bot_config_menu(bot_id)
+                elif bot_info['bot_type'] == 'exchange':
+                    config_menu = create_exchange_bot_config_menu(bot_id)
                 bot.edit_message_text(f"⚙️ Меню конфигурации бота {name}", user_id, call.message.message_id, reply_markup=config_menu)
             
             elif action == 'transfer' and data[2] == 'start':
@@ -5330,6 +5556,7 @@ if __name__ == '__main__':
                     'cashlait_welcome_text': "👋 Введите приветственное сообщение для CashLait (поддерживается HTML):",
                     'dicelite_crypto_pay_token': "💳 Введите Crypto Pay токен (из @CryptoBot) для DiceLite:",
                     'dicelite_welcome_text': "👋 Введите приветственное сообщение для DiceLite (поддерживается HTML):",
+                    'exchange_welcome_text': "👋 Введите приветственное сообщение для Бота Обменника (поддерживается HTML):",
                 }
                 if setting_name in prompts:
                     current_value_str = escape(str(current_value)) if current_value is not None else "Не установлено"

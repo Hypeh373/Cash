@@ -34,7 +34,8 @@ from telebot.apihelper import ApiException
 # ⚠️ ВСТАВЬТЕ ВАШ ТОКЕН БОТА ОТ @BotFather:
 BOT_TOKEN = os.getenv("CASHLAIT_BOT_TOKEN", "8400644706:AAFjCQDxS73hvhizY4f3v94-vlXLkvqGHdQ")  # Например: "1234567890:ABCdefGHIjklMNOpqrsTUVwxyz"
 CONSTRUCTOR_BOT_USERNAME = os.getenv("CONSTRUCTOR_BOT_USERNAME", "MinxoCreate_bot").strip("@ ")
-CONSTRUCTOR_BOT_LINK = f"https://t.me/{CONSTRUCTOR_BOT_USERNAME}"
+CONSTRUCTOR_BOT_LINK = os.getenv("CONSTRUCTOR_LINK_URL", f"https://t.me/{CONSTRUCTOR_BOT_USERNAME}")
+CONSTRUCTOR_BOT_LINK_TEXT = os.getenv("CONSTRUCTOR_LINK_TEXT", "🤖 Хочу такого же бота")
 ADMIN_IDS = {
     int(token)
     for token in os.getenv("ADMIN_IDS", "6745031200,7585735331").replace(";", ",").split(",")
@@ -2159,7 +2160,7 @@ def send_about_section(chat_id: int) -> None:
     add_info_button("💬 Чат", "info_chat_url", "chat")
     # Кнопка "Хочу такого же бота" - берется из константы CONSTRUCTOR_BOT_LINK, а не из настроек
     if CONSTRUCTOR_BOT_LINK:
-        markup.add(types.InlineKeyboardButton("🤖 Хочу такого же бота", url=CONSTRUCTOR_BOT_LINK))
+        markup.add(types.InlineKeyboardButton(CONSTRUCTOR_BOT_LINK_TEXT, url=CONSTRUCTOR_BOT_LINK))
     bot.send_message(chat_id, text, reply_markup=markup)
 
 
