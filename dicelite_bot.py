@@ -68,6 +68,28 @@ def _normalize_creator_link(value: Optional[str]) -> str:
     return trimmed
 
 
+def _derive_creator_label(raw_label: Optional[str], normalized_link: str) -> str:
+    candidate = (raw_label or "").strip()
+    if candidate:
+        return candidate
+    if normalized_link.startswith("https://t.me/"):
+        username = normalized_link.rsplit("/", 1)[-1]
+        if username:
+            return f"@{username}"
+    return normalized_link or ""
+
+
+def _creator_label_html(label: str, normalized_link: str) -> str:
+    display = label or normalized_link
+    if not display:
+        return ""
+    safe_display = escape(display)
+    if normalized_link:
+        safe_link = escape(normalized_link, quote=True)
+        return f"<a href=\"{safe_link}\">{safe_display}</a>"
+    return safe_display
+
+
 # --- Configuration via environment variables (managed by creator) ---
 BOT_TOKEN = (
     os.getenv("DICELITE_BOT_TOKEN")
@@ -93,13 +115,16 @@ CREATOR_BRANDING_ENABLED = (
 CREATOR_CONTACT_URL = _normalize_creator_link(
     os.getenv("CREATOR_CONTACT_URL", "https://t.me/GrillCreate_bot")
 )
+CREATOR_CONTACT_LABEL = _derive_creator_label(
+    os.getenv("CREATOR_CONTACT_LABEL", ""),
+    CREATOR_CONTACT_URL,
+)
 CREATOR_CONTACT_BUTTON_LABEL = os.getenv(
     "CREATOR_CONTACT_BUTTON_LABEL", "🤖 Хочу такого же бота"
 ).strip() or "🤖 Хочу такого же бота"
 CREATOR_BRANDING_MESSAGE_TEMPLATE = os.getenv(
     "CREATOR_BRANDING_MESSAGE",
-    "🤖 Бот создан с помощью <a href='{link}'>Grill Create</a>.\n"
-    "Хотите такой же? Нажмите кнопку ниже!",
+    "Бот создан с помощью {label_html}",
 )
 VIP_FEATURES_ENABLED = not CREATOR_BRANDING_ENABLED
 
@@ -352,7 +377,7 @@ def check_and_enforce_subscription(user_id: int, chat_id: int) -> bool:
 
 
 def is_creator_branding_active() -> bool:
-    return CREATOR_BRANDING_ENABLED and bool(CREATOR_CONTACT_URL)
+    return CREATOR_BRANDING_ENABLED and bool(CREATOR_CONTACT_URL or CREATOR_CONTACT_LABEL)
 
 
 def build_creator_branding_markup() -> Optional[types.InlineKeyboardMarkup]:
@@ -371,10 +396,22 @@ def build_creator_branding_markup() -> Optional[types.InlineKeyboardMarkup]:
 def render_creator_branding_text() -> Optional[str]:
     if not CREATOR_BRANDING_ENABLED:
         return None
-    template = CREATOR_BRANDING_MESSAGE_TEMPLATE or ""
-    if not template.strip():
+    if not (CREATOR_CONTACT_URL or CREATOR_CONTACT_LABEL):
         return None
-    return template.replace("{link}", CREATOR_CONTACT_URL or "#")
+    template = (CREATOR_BRANDING_MESSAGE_TEMPLATE or "").strip()
+    if not template:
+        return None
+    label_value = CREATOR_CONTACT_LABEL or CREATOR_CONTACT_URL
+    label_html = _creator_label_html(label_value, CREATOR_CONTACT_URL)
+    context = {
+        "link": CREATOR_CONTACT_URL or "",
+        "label": label_value or "",
+        "label_html": label_html or escape(label_value or ""),
+    }
+    try:
+        return template.format(**context)
+    except KeyError:
+        return template.replace("{link}", context["link"])
 
 
 def send_creator_branding_banner(chat_id: int) -> None:
@@ -383,13 +420,12 @@ def send_creator_branding_banner(chat_id: int) -> None:
     message_text = render_creator_branding_text()
     if not message_text:
         return
-    markup = build_creator_branding_markup()
     try:
         bot.send_message(
             chat_id,
             message_text,
-            reply_markup=markup,
             disable_web_page_preview=True,
+            parse_mode="HTML",
         )
     except ApiException as exc:
         logger.debug("Failed to send creator branding banner: %s", exc)
