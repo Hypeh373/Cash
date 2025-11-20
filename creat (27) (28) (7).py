@@ -410,6 +410,8 @@ def init_db():
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('cashlait_task_price', '0.1')")
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('cashlait_min_completions', '10')")
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('dicelite_price', '1.0')")
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('dicelite_vip_price', '120.0')")
+        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('dicelite_creator_link', 'https://t.me/MinxoCreatorBot')")
         # Watermark toggle for creator welcome message (enabled by default)
         cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('creator_watermark_enabled', '1')")
         # Global toggle for '📋 Списки ботов' feature (enabled by default)
@@ -950,6 +952,12 @@ def start_bot_process(bot_id):
                 env['DICELITE_CRYPTO_PAY_TOKEN'] = bot_info['dicelite_crypto_pay_token']
             if bot_info.get('dicelite_welcome_text'):
                 env['DICELITE_WELCOME_TEXT'] = bot_info['dicelite_welcome_text']
+            contact_link = get_setting('dicelite_creator_link')
+            if contact_link:
+                normalized_link = contact_link
+                if normalized_link.startswith("@"):
+                    normalized_link = f"https://t.me/{normalized_link.lstrip('@')}"
+                env['CREATOR_CONTACT_URL'] = normalized_link
         else:
             return False, "Неизвестный тип бота."
         
@@ -3013,14 +3021,27 @@ def handle_admin_callbacks(call):
             if user_id in user_states:
                 del user_states[user_id]
             dicelite_price = get_setting('dicelite_price') or '1.0'
+            dicelite_link = get_setting('dicelite_creator_link') or 'не задана'
             markup = types.InlineKeyboardMarkup(row_width=1)
             markup.add(types.InlineKeyboardButton(f"💰 Изменить цену DiceLite ({dicelite_price} $)", callback_data="admin_dicelite_set_price"))
+            markup.add(types.InlineKeyboardButton("🔗 Изменить ссылку на оплату", callback_data="admin_dicelite_set_link"))
             markup.add(types.InlineKeyboardButton("🎁 Выдать DiceLite бота", callback_data="admin_dicelite_grant"))
             markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back"))
             try:
-                bot.edit_message_text("🎲 Управление DiceLite ботом:", user_id, call.message.message_id, reply_markup=markup)
+                bot.edit_message_text(
+                    f"🎲 Управление DiceLite ботом:\n\nТекущая ссылка на оплату: <code>{dicelite_link}</code>",
+                    user_id,
+                    call.message.message_id,
+                    parse_mode="HTML",
+                    reply_markup=markup
+                )
             except telebot.apihelper.ApiTelegramException:
-                bot.send_message(user_id, "🎲 Управление DiceLite ботом:", reply_markup=markup)
+                bot.send_message(
+                    user_id,
+                    f"🎲 Управление DiceLite ботом:\n\nТекущая ссылка на оплату: <code>{dicelite_link}</code>",
+                    parse_mode="HTML",
+                    reply_markup=markup
+                )
             return
 
         if sub_action == "set":
@@ -3038,6 +3059,23 @@ def handle_admin_callbacks(call):
                     reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_dicelite_manage"))
                 )
             set_user_state(user_id, {'action': 'admin_change_setting', 'setting_key': 'dicelite_price', 'message_id': msg.message_id, 'call_id': call.id, 'message': call.message, 'min_value': 1.0})
+            return
+
+        if sub_action == "set_link":
+            try:
+                msg = bot.edit_message_text(
+                    "🔗 Введите ссылку или @username администратора для альтернативной оплаты DiceLite:",
+                    user_id,
+                    call.message.message_id,
+                    reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_dicelite_manage"))
+                )
+            except telebot.apihelper.ApiTelegramException:
+                msg = bot.send_message(
+                    user_id,
+                    "🔗 Введите ссылку или @username администратора для альтернативной оплаты DiceLite:",
+                    reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_dicelite_manage"))
+                )
+            set_user_state(user_id, {'action': 'admin_change_setting', 'setting_key': 'dicelite_creator_link', 'message_id': msg.message_id, 'call_id': call.id, 'message': call.message})
             return
 
         if sub_action == "grant":
@@ -3614,8 +3652,10 @@ def handle_admin_callbacks(call):
                 del user_states[user_id]
 
             vip_price = get_setting('vip_price') or '120.0'
+            dicelite_vip_price = get_setting('dicelite_vip_price') or vip_price
             markup = types.InlineKeyboardMarkup(row_width=1)
             markup.add(types.InlineKeyboardButton(f"💰 Изменить цену VIP ({vip_price} ₽)", callback_data="admin_vip_set_price"))
+            markup.add(types.InlineKeyboardButton(f"🎲 Цена VIP DiceLite ({dicelite_vip_price} ₽)", callback_data="admin_vip_set_dicelite_price"))
             markup.add(types.InlineKeyboardButton("🎁 Выдать VIP", callback_data="admin_vip_grant"))
             markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_back"))
             bot.edit_message_text("₽ Управление VIP-статусом:", ADMIN_ID, call.message.message_id, reply_markup=markup)
@@ -3624,6 +3664,15 @@ def handle_admin_callbacks(call):
             msg = bot.edit_message_text("Введите новую цену для VIP-статуса (например, 120.0):", ADMIN_ID, call.message.message_id,
                                         reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_vip_manage")))
             set_user_state(ADMIN_ID, {'action': 'admin_change_setting', 'setting_key': 'vip_price', 'message_id': msg.message_id, 'call_id': call.id, 'message': call.message})
+        
+        elif sub_action == "set" and parts[3] == "dicelite_price":
+            msg = bot.edit_message_text(
+                "Введите новую цену VIP-статуса для DiceLite (например, 120.0):",
+                ADMIN_ID,
+                call.message.message_id,
+                reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data="admin_vip_manage"))
+            )
+            set_user_state(ADMIN_ID, {'action': 'admin_change_setting', 'setting_key': 'dicelite_vip_price', 'message_id': msg.message_id, 'call_id': call.id, 'message': call.message})
         
         elif sub_action == "grant":
             cancel_markup = types.InlineKeyboardMarkup().add(
@@ -4647,14 +4696,18 @@ if __name__ == '__main__':
                 parts = call.data.split('_')
                 bot_id = int(parts[1])
                 action = parts[2]
+                bot_info = get_bot_by_id(bot_id)
+                bot_type = bot_info['bot_type'] if bot_info else None
+                default_vip_price = float(get_setting('vip_price') or 120.0)
+                specific_price_setting = 'dicelite_vip_price' if bot_type == 'dicelite' else 'vip_price'
+                vip_price_raw = get_setting(specific_price_setting)
+                vip_price = float(vip_price_raw or default_vip_price)
                 
                 if action == 'toggle':
-                    bot_info = get_bot_by_id(bot_id)
                     if bot_info['vip_status']:
                         bot.answer_callback_query(call.id, "✅ У этого бота уже есть VIP-статус.", show_alert=True)
                         return
 
-                    vip_price = float(get_setting('vip_price') or 120.0)
                     text = (f"⭐ <b>Покупка VIP-статуса</b>\n\n"
                             f"Стоимость: <b>{vip_price:.2f} USDT</b>\n\n"
                             f"Что дает VIP-статус?\n"
@@ -4678,8 +4731,6 @@ if __name__ == '__main__':
                             bot.answer_callback_query(call.id, "❌ Crypto Pay недоступен сейчас.", show_alert=True)
                             return
                         bot.answer_callback_query(call.id, "⏳ Создаю счет...")
-                        vip_price = float(get_setting('vip_price') or 120.0)
-                        
                         async def create_invoice_async():
                             try:
                                 invoice = await local_crypto.create_invoice(asset='USDT', amount=vip_price, fiat='RUB', payload=f"vip_{bot_id}")
@@ -4698,10 +4749,32 @@ if __name__ == '__main__':
                         run_async_task(create_invoice_async())
 
                 elif action == 'other':
-                    admin_info = bot.get_chat(ADMIN_ID)
-                    bot.edit_message_text(f"Для покупки другим способом, пожалуйста, свяжитесь с администратором: @{admin_info.username}",
-                                          user_id, call.message.message_id,
-                                          reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data=f"vip_{bot_id}_toggle")))
+                    dicelite_contact = get_setting('dicelite_creator_link') if bot_type == 'dicelite' else None
+                    if dicelite_contact and dicelite_contact.startswith("@"):
+                        dicelite_contact = f"https://t.me/{dicelite_contact.lstrip('@')}"
+                    if dicelite_contact:
+                        markup = types.InlineKeyboardMarkup(row_width=1)
+                        markup.add(
+                            types.InlineKeyboardButton(
+                                "👤 Написать администратору",
+                                url=dicelite_contact
+                            )
+                        )
+                        markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data=f"vip_{bot_id}_toggle"))
+                        bot.edit_message_text(
+                            "Выберите альтернативный способ оплаты:",
+                            user_id,
+                            call.message.message_id,
+                            reply_markup=markup
+                        )
+                    else:
+                        admin_info = bot.get_chat(ADMIN_ID)
+                        bot.edit_message_text(
+                            f"Для покупки другим способом, пожалуйста, свяжитесь с администратором: @{admin_info.username}",
+                            user_id,
+                            call.message.message_id,
+                            reply_markup=types.InlineKeyboardMarkup().add(types.InlineKeyboardButton("⬅️ Назад", callback_data=f"vip_{bot_id}_toggle"))
+                        )
 
                 elif action == 'check':
                     invoice_id_to_check = int(parts[3])
@@ -5081,6 +5154,26 @@ if __name__ == '__main__':
                 run_async_task(create_cashlait_invoice_async())
                 return
             if call.data == "create_bot_dicelite":
+                dicelite_price = float(get_setting('dicelite_price') or 1.0)
+                contact_link = get_setting('dicelite_creator_link')
+                if contact_link and contact_link.startswith("@"):
+                    contact_link = f"https://t.me/{contact_link.lstrip('@')}"
+                text = (
+                    f"🎲 <b>DiceLite бот</b>\n\n"
+                    f"Стоимость: <b>{dicelite_price:.2f} $</b>\n\n"
+                    "Выберите удобный способ оплаты:"
+                )
+                markup = types.InlineKeyboardMarkup(row_width=1)
+                if is_crypto_token_configured():
+                    markup.add(types.InlineKeyboardButton("💳 Crypto Bot", callback_data="dicelitenew_crypto_pay"))
+                if contact_link:
+                    markup.add(types.InlineKeyboardButton("👤 Другой способ", url=contact_link))
+                markup.add(types.InlineKeyboardButton("⬅️ Назад", callback_data="create_bot_dicelite"))
+                bot.edit_message_text(text, user_id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
+                bot.answer_callback_query(call.id)
+                return
+
+            if call.data == "dicelitenew_crypto_pay":
                 if not is_crypto_token_configured():
                     bot.answer_callback_query(call.id, "❌ Crypto Pay токен не настроен.", show_alert=True)
                     return
