@@ -1,0 +1,676 @@
+import telebot
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+import requests
+import time
+import sqlite3
+import sys
+import os
+
+# BOT_ID передается как аргумент командной строки
+BOT_ID = int(sys.argv[1]) if len(sys.argv) > 1 else None
+if BOT_ID is None:
+    print("ОШИБКА: BOT_ID не передан! Использование: python anonchatik.py <bot_id>")
+    sys.exit(1)
+
+# Путь к БД Creator
+CREATOR_DB_PATH = 'creator_data2.db'
+
+def get_bot_setting_from_creator(bot_id, setting_name, default_value=None):
+    """Получает настройку бота из БД Creator"""
+    try:
+        conn = sqlite3.connect(CREATOR_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute(f"SELECT {setting_name} FROM bots WHERE id = ?", (bot_id,))
+        result = cursor.fetchone()
+        conn.close()
+        if result and result[0] is not None:
+            return result[0]
+        return default_value
+    except Exception as e:
+        print(f"Ошибка получения настройки {setting_name}: {e}")
+        return default_value
+
+# Загружаем настройки из Creator БД
+TOKEN = get_bot_setting_from_creator(BOT_ID, 'bot_token', '')
+CRYPTO_API_TOKEN = get_bot_setting_from_creator(BOT_ID, 'anonchat_crypto_api_token', '')
+RAW_CHANNEL_ID = get_bot_setting_from_creator(BOT_ID, 'anonchat_channel_id', '')
+VIP_PRICE = float(get_bot_setting_from_creator(BOT_ID, 'anonchat_vip_price', 45.0))
+WELCOME_MESSAGE = get_bot_setting_from_creator(BOT_ID, 'anonchat_welcome_message', 'Добро пожаловать! Начните общение 🐣.')
+FLYER_API_KEY = get_bot_setting_from_creator(BOT_ID, 'anonchat_flyer_api_key', '')
+try:
+    FLYER_TASKS_LIMIT = int(get_bot_setting_from_creator(BOT_ID, 'anonchat_flyer_tasks_limit', 5) or 5)
+except ValueError:
+    FLYER_TASKS_LIMIT = 5
+
+def normalize_channel(raw_value: str) -> str:
+    if not raw_value:
+        return ''
+    value = str(raw_value).strip()
+    if not value:
+        return ''
+    if value.startswith('https://t.me/'):
+        rest = value.split('https://t.me/', 1)[1]
+        rest = rest.split('/', 1)[0]
+        value = '@' + rest
+    if not value.startswith('@') and not value.lstrip('-').isdigit():
+        value = '@' + value
+    return value
+
+CHANNEL_ID = normalize_channel(RAW_CHANNEL_ID)
+CHANNEL_USERNAME = CHANNEL_ID[1:] if CHANNEL_ID.startswith('@') else CHANNEL_ID
+SUBSCRIPTION_REQUIRED = bool(CHANNEL_ID)
+
+if not TOKEN:
+    print(f"ОШИБКА: Токен бота #{BOT_ID} не найден в БД Creator!")
+    sys.exit(1)
+
+bot = telebot.TeleBot(TOKEN)
+
+# Словари для хранения данных
+chat_partners = {}  # Для активных пар
+waiting_users = set()  # Для ожидания
+user_data = {}  # Для хранения данных пользователей: пол, премиум-статус
+user_invoices = {}  # Для хранения инвойсов пользователей
+last_check_time = {}  # Время последней проверки статуса
+users_first_time = set()  # Для отслеживания, если пользователь впервые запускает бота
+
+# Проверка подписки
+def check_subscription(user_id):
+    if not SUBSCRIPTION_REQUIRED:
+        return True
+    try:
+        member = bot.get_chat_member(CHANNEL_ID, user_id)
+        return member.status in ['member', 'administrator', 'creator']
+    except Exception:
+        return False
+# Путь к БД пользователей бота
+USER_DB_PATH = f'dbs/bot_{BOT_ID}_anonchat.db'
+
+# Создаем папку dbs если её нет
+if not os.path.exists('dbs'):
+    os.makedirs('dbs')
+
+def get_user_data(user_id):
+    conn = sqlite3.connect(USER_DB_PATH)
+    cursor = conn.cursor()
+    
+    # Получаем данные пользователя по его ID
+    cursor.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
+    user = cursor.fetchone()  # Получаем первую строку (если есть)
+    
+    conn.close()
+    return user  # Вернём данные пользователя
+    
+def add_user(user_id, gender):
+    conn = sqlite3.connect(USER_DB_PATH)
+    cursor = conn.cursor()
+
+    # Добавляем нового пользователя
+    cursor.execute('INSERT INTO users (user_id, gender) VALUES (?, ?)', (user_id, gender))
+    
+    conn.commit()
+    conn.close()
+
+def update_user_data(user_id, gender=None, premium=None):
+    conn = sqlite3.connect(USER_DB_PATH)
+    cursor = conn.cursor()
+
+    # Обновляем данные пользователя в базе данных
+    if gender is not None:
+        cursor.execute('UPDATE users SET gender = ? WHERE user_id = ?', (gender, user_id))
+    if premium is not None:
+        cursor.execute('UPDATE users SET premium = ? WHERE user_id = ?', (premium, user_id))
+    
+    conn.commit()
+    conn.close()
+
+# Инициализация БД пользователей
+def init_user_db():
+    conn = sqlite3.connect(USER_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY,
+        gender TEXT,
+        premium BOOLEAN DEFAULT 0
+    )''')
+    conn.commit()
+    conn.close()
+
+# Инициализируем БД при запуске
+init_user_db()
+
+# Отправка кнопок для подписки
+def send_subscription_buttons(chat_id):
+    if not SUBSCRIPTION_REQUIRED:
+        bot.send_message(chat_id, "Подписка на канал не требуется. Нажмите /start, чтобы продолжить.")
+        return
+    markup = InlineKeyboardMarkup()
+    channel_button = InlineKeyboardButton("Подписаться на канал", url=f"https://t.me/{CHANNEL_USERNAME}")
+    check_button = InlineKeyboardButton("Проверить подписку ✅", callback_data="check_subscription")
+    markup.add(channel_button)
+    markup.add(check_button)
+    bot.send_message(chat_id, "Для использования бота необходимо подписаться на канал:", reply_markup=markup)
+
+# Проверка подписки перед выполнением действий
+def is_user_subscribed(user_id):
+    if not SUBSCRIPTION_REQUIRED:
+        return True
+    if not check_subscription(user_id):
+        send_subscription_buttons(user_id)
+        return False
+    return True
+
+# Команда /start
+@bot.message_handler(commands=['start'])
+def start(message):
+    user_id = message.chat.id
+    if is_user_subscribed(user_id):
+        bot.send_message(user_id, WELCOME_MESSAGE)
+        if user_id not in users_first_time:
+            ask_gender(user_id)
+            users_first_time.add(user_id)
+        else:
+            # Основные кнопки не показываются, пока не выбран пол
+            if user_id in user_data and "gender" in user_data[user_id]:
+                show_main_buttons(user_id)
+
+# Спрашиваем пол пользователя
+def ask_gender(user_id):
+    markup = InlineKeyboardMarkup()
+    boy_button = InlineKeyboardButton("Мальчик 👦", callback_data="gender_boy")
+    girl_button = InlineKeyboardButton("Девочка 👩", callback_data="gender_girl")
+    markup.add(boy_button, girl_button)
+    bot.send_message(user_id, "Выберите ваш пол:", reply_markup=markup)
+
+# Callback обработчик для выбора пола и подписки
+@bot.callback_query_handler(func=lambda call: True)
+@bot.callback_query_handler(func=lambda call: True)
+def callback_query(call):
+    user_id = call.from_user.id
+
+    # Ответ на проверку подписки
+    if call.data == "check_subscription":
+        if check_subscription(user_id):
+            bot.answer_callback_query(call.id, "Вы подписаны! Добро пожаловать 😊.")
+            bot.send_message(user_id, "Вы успешно подписались на канал!")
+            if user_id not in users_first_time:
+                ask_gender(user_id)
+            else:
+                if user_id in user_data and "gender" in user_data[user_id]:
+                    show_main_buttons(user_id)
+        else:
+            bot.answer_callback_query(call.id, "Вы не подписаны. Подпишитесь и попробуйте снова 😥.")
+            send_subscription_buttons(user_id)
+
+    # Ответ на выбор пола
+    elif call.data == "gender_boy":
+        user_data[user_id] = {"gender": "Мальчик", "premium": user_data.get(user_id, {}).get("premium", False)}
+        bot.answer_callback_query(call.id, "Вы выбрали: Мальчик 👦.")
+        bot.send_message(user_id, "Ваш выбор сохранён: Мальчик 👦.")
+        show_main_buttons(user_id)
+
+    elif call.data == "gender_girl":
+        user_data[user_id] = {"gender": "Девочка", "premium": user_data.get(user_id, {}).get("premium", False)}
+        bot.answer_callback_query(call.id, "Вы выбрали: Девочка 👩.")
+        bot.send_message(user_id, "Ваш выбор сохранён: Девочка 👩.")
+        show_main_buttons(user_id)
+
+    elif call.data == "buy_premium":
+        bot.answer_callback_query(call.id)
+        create_invoice_for_premium(call.message)
+
+    elif call.data == "check_payment":
+        bot.answer_callback_query(call.id)
+        check_payment_status(call)
+
+    elif call.data == "premium_settings":
+        show_premium_settings(user_id)
+        bot.answer_callback_query(call.id)
+
+
+    elif call.data == "set_gender_male":
+        user_data[user_id]["gender"] = "Мальчик"
+        bot.answer_callback_query(call.id, "Пол для поиска установлен на 'Мальчик'.")
+        show_premium_settings(user_id)
+
+    elif call.data == "set_gender_female":
+        user_data[user_id]["gender"] = "Девочка"
+        bot.answer_callback_query(call.id, "Пол для поиска установлен на 'Девочка'.")
+        show_premium_settings(user_id)
+
+# Основные кнопки (Начать поиск)
+def show_main_buttons(chat_id):
+    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+    profile_button = KeyboardButton("Личный кабинет 👤")
+    # Добавляем кнопку в верхнюю строку
+    markup.add(profile_button)
+    search_button = KeyboardButton("Начать поиск 🔍")
+    premium_button = KeyboardButton("Премиум поиск 👑")
+    markup.add(search_button, premium_button)
+    bot.send_message(chat_id, "Выберите действие:", reply_markup=markup)
+def send_bulk_message(message_text):
+    conn = sqlite3.connect(USER_DB_PATH)
+    cursor = conn.cursor()
+
+    # Получаем все ID пользователей
+    cursor.execute('SELECT user_id FROM users')
+    users = cursor.fetchall()
+
+    success_count = 0
+    failure_count = 0
+
+    for user in users:
+        user_id = user[0]
+        try:
+            bot.send_message(user_id, message_text)
+            success_count += 1  # Успешная доставка
+        except Exception as e:
+            failure_count += 1  # Неудачная доставка
+            print(f"Не удалось отправить сообщение пользователю {user_id}: {str(e)}")
+
+    conn.close()
+
+    # Возвращаем количество доставленных и недоставленных сообщений
+    return success_count, failure_count
+
+# Обработка команды для рассылки
+@bot.message_handler(func=lambda message: message.text.startswith("Rassilka"))
+def handle_rassilka(message):
+    user_id = message.chat.id
+    ADMIN_ID = 6745031200
+    
+    # Проверяем, является ли пользователь администратором
+    if user_id == ADMIN_ID:
+        # Извлекаем текст сообщения после слова "Rassilka"
+        message_text = message.text[8:].strip()  # Отрезаем "Rassilka" и оставляем остальной текст
+        
+        if message_text:
+            success_count, failure_count = send_bulk_message(message_text)
+            
+            # Отправляем отчет пользователю-администратору
+            report = (
+                f"Рассылка завершена!\n\n"
+                f"✅ Успешно доставлено: {success_count} сообщений\n"
+                f"❌ Не удалось доставить: {failure_count} сообщений"
+            )
+            bot.send_message(user_id, report)
+        else:
+            bot.send_message(user_id, "Пожалуйста, укажите текст для рассылки.")
+    else:
+        bot.send_message(user_id, "У вас нет прав для отправки рассылки.")
+
+# Обработка кнопки "Премиум поиск 👑"
+@bot.message_handler(func=lambda message: message.text == "Премиум поиск 👑")
+def premium_search(message):
+    user_id = message.chat.id
+    if not is_user_subscribed(user_id):
+        return
+
+    if user_id in user_data and user_data[user_id]["premium"]:
+        markup = InlineKeyboardMarkup()
+        premium_settings_button = InlineKeyboardButton("Премиум настройки", callback_data="premium_settings")
+        markup.add(premium_settings_button)
+        bot.send_message(user_id, "У вас есть премиум подписка 🥳. Нажмите кнопку ниже, чтобы настроить поиск 🔍", reply_markup=markup)
+    else:
+        # Если нет премиум подписки, показываем кнопку для перехода к оплате
+        markup = InlineKeyboardMarkup()
+        payment_button = InlineKeyboardButton(f"Перейти к оплате в CryptoBot - {VIP_PRICE}₽", callback_data="buy_premium")
+        markup.add(payment_button)
+        bot.send_message(
+    user_id, 
+    "🌟 *Откройте для себя эксклюзивные возможности с премиум-подпиской!* 🌟\n\n"
+    "Чтобы получить доступ к *премиум поиску*, просто приобретите нашу *премиум-подписку* и откройте для себя новые горизонты! *ПОКУПКА ПОДПИСКИ НАВСЕГДА*🚀\n\n"
+    "С премиум-доступом вы сможете:\n\n"
+    "🔍 *Выбирать пол для поиска* – Настройте поиск так, как вам удобно, и найдите именно то, что ищете!\n"
+    "⚡ *Приоритетный поиск* – Получайте собеседников быстрее остальных пользователей!\n"
+    "💬 *Открытие новых возможностей* – Включите функции, которые делают общение более удобным и безопасным!\n\n"
+    "💳 *Выберите способ оплаты ниже* и откройте доступ к уникальным возможностям!",
+    reply_markup=markup,
+    parse_mode='Markdown'
+)
+
+        
+
+# Функция для создания инвойса
+def create_invoice_for_premium(message):
+    user_id = message.chat.id
+    amount = VIP_PRICE  # Сумма для премиум подписки из настроек Creator
+
+    if not CRYPTO_API_TOKEN:
+        bot.send_message(user_id, "Оплата через Crypto Pay временно недоступна. Обратитесь к администратору.")
+        return
+
+    data = {
+        'currency_type': 'fiat',
+        'amount': amount,
+        'fiat': 'RUB',
+        'description': 'Оплата за премиум подписку',
+    }
+
+    headers = {
+        'Crypto-Pay-API-Token': CRYPTO_API_TOKEN
+    }
+
+    try:
+        response = requests.post('https://pay.crypt.bot/api/createInvoice', json=data, headers=headers)
+
+        if response.status_code == 200:
+            invoice_data = response.json()
+            invoice_url = invoice_data.get('result', {}).get('bot_invoice_url', None)
+            invoice_id = invoice_data.get('result', {}).get('invoice_id', None)
+
+            if invoice_url and invoice_id:
+                user_invoices[user_id] = {'invoice_id': invoice_id, 'amount': amount}
+
+                markup = InlineKeyboardMarkup()
+                payment_button = InlineKeyboardButton(text="Перейти к оплате", url=invoice_url)
+                check_button = InlineKeyboardButton(text="Проверить статус", callback_data="check_payment")
+                markup.add(payment_button, check_button)
+
+                bot.send_message(user_id, f"Для оплаты {amount} RUB перейдите по следующей ссылке: {invoice_url}\nВ CryptoBot вам будут предложены различные способы оплаты.", reply_markup=markup)
+            else:
+                bot.send_message(user_id, "Не удалось получить ссылку для оплаты.")
+        else:
+            bot.send_message(user_id, f'Ошибка при создании инвойса: {response.text}')
+
+    except requests.exceptions.RequestException as e:
+        bot.send_message(user_id, f'Ошибка при подключении к платежной системе: {str(e)}')
+
+# Проверка статуса инвойса
+def check_payment_status(call):
+    user_id = call.message.chat.id
+    invoice_id = user_invoices.get(user_id, {}).get('invoice_id')
+
+    if not invoice_id:
+        bot.send_message(user_id, "Не удалось найти инвойс для проверки.")
+        return
+
+    current_time = time.time()
+    if user_id in last_check_time and current_time - last_check_time[user_id] < 300:
+        bot.send_message(user_id, "Пожалуйста, подождите 5 минут перед следующей проверкой статуса.")
+        return
+
+    params = {'invoice_ids': invoice_id}
+    headers = {'Crypto-Pay-API-Token': CRYPTO_API_TOKEN}
+
+    try:
+        response = requests.get('https://pay.crypt.bot/api/getInvoices', headers=headers, params=params)
+
+        if response.status_code == 200:
+            invoice_data = response.json()
+            invoices = invoice_data.get('result', {}).get('items', [])
+
+            if invoices:
+                status = invoices[0].get('status')
+                if status == 'paid':
+                    bot.send_message(user_id, "Оплата успешно выполнена! Подписка активирована.", parse_mode="HTML")
+                    update_user_data(user_id, premium=True)
+                    print(f"Премиум подписка активирована для пользователя {user_id}")
+
+                    # Устанавливаем премиум статус пользователя
+                    user_data[user_id]["premium"] = True
+                    # Удаляем инвойс после успешной оплаты
+                    del user_invoices[user_id]
+                    # Показываем кнопку для премиум настроек
+                    show_premium_settings(user_id)
+                elif status == 'expired':
+                    bot.send_message(user_id, "Срок действия счета истек.")
+                else:
+                    bot.send_message(user_id, "Инвойс еще не оплачен. Пожалуйста, подождите.")
+            else:
+                bot.send_message(user_id, "Инвойс не найден.")
+        else:
+            bot.send_message(user_id, f'Ошибка при получении статуса инвойса: {response.text}')
+
+    except requests.exceptions.RequestException as e:
+        bot.send_message(user_id, f'Ошибка при подключении к платежной системе: {str(e)}')
+
+    last_check_time[user_id] = current_time
+
+# Премиум настройки
+def show_premium_settings(user_id):
+    markup = InlineKeyboardMarkup()
+
+    gender_button = InlineKeyboardButton(f"Выберите пол для поиска: {user_data[user_id]['gender']}",
+                                        callback_data="set_gender_male" if user_data[user_id]["gender"] == "Девочка" else "set_gender_female")
+
+    markup.add(gender_button)
+    bot.send_message(user_id, "Премиум настройки:", reply_markup=markup)
+
+# Поиск собеседников
+def show_stop_search_button(chat_id):
+    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+    stop_button = KeyboardButton("❌ Остановить поиск собеседника")
+    markup.add(stop_button)
+    bot.send_message(chat_id, "Поиск собеседника... Нажмите кнопку, чтобы остановить поиск.", reply_markup=markup)
+
+@bot.message_handler(func=lambda message: message.text == "Начать поиск 🔍")
+def start_search(message):
+    user_id = message.chat.id
+    if not is_user_subscribed(user_id):
+        return
+
+    if user_id not in user_data or "gender" not in user_data[user_id]:
+        ask_gender(user_id)
+        return
+
+    if user_data[user_id]["premium"]:
+        # Поиск с учетом настроек (по полу)
+        if user_id in waiting_users:
+            bot.send_message(user_id, "Вы уже в поиске.")
+            return
+
+        # Удаляем кнопки после начала поиска
+        bot.send_message(user_id, "Поиск начат. Кнопки больше не доступны.", reply_markup=ReplyKeyboardRemove())
+
+        show_stop_search_button(user_id)
+
+        if waiting_users:
+            partner_id = waiting_users.pop()
+            # Поиск только по тому же полу
+            if user_data[user_id]["gender"] == user_data[partner_id]["gender"]:
+                chat_partners[user_id] = partner_id
+                chat_partners[partner_id] = user_id
+                bot.send_message(user_id, "🔥Собеседник найден! Начинайте общение.", reply_markup=ReplyKeyboardRemove())
+                bot.send_message(partner_id, "🔥Собеседник найден! Начинайте общение.\n/next - Найти другого собеседника\n/stop - Закончить диалог\n/start - Перезапустить бота! ", reply_markup=ReplyKeyboardRemove())
+                # Убираем кнопку остановки поиска
+                show_main_buttons(user_id)
+                show_main_buttons(partner_id)
+            else:
+                waiting_users.add(user_id)
+                bot.send_message(user_id, "Нет собеседника с таким полом. Ожидайте подходящего.")
+        else:
+            waiting_users.add(user_id)
+            bot.send_message(user_id, "Вы добавлены в очередь. Ожидайте собеседника.")
+    else:
+        # Обычный поиск без премиум настроек
+        if user_id in waiting_users:
+            bot.send_message(user_id, "Вы уже в очереди.")
+            return
+
+        # Удаляем кнопки после начала поиска
+        bot.send_message(user_id, "Поиск начат. Кнопки больше не доступны.", reply_markup=ReplyKeyboardRemove())
+
+        show_stop_search_button(user_id)
+
+        if waiting_users:
+            partner_id = waiting_users.pop()
+            chat_partners[user_id] = partner_id
+            chat_partners[partner_id] = user_id
+            bot.send_message(user_id, "Собеседник найден! Начинайте общение.", reply_markup=ReplyKeyboardRemove())
+            bot.send_message(partner_id, "Собеседник найден! Начинайте общение.", reply_markup=ReplyKeyboardRemove())
+        else:
+            waiting_users.add(user_id)
+            bot.send_message(user_id, "Вы добавлены в очередь. Ожидайте собеседника.")
+
+# Остановить поиск
+@bot.message_handler(func=lambda message: message.text == "❌ Остановить поиск собеседника")
+def stop_search(message):
+    user_id = message.chat.id
+    if user_id in waiting_users:
+        # Убираем пользователя из очереди
+        waiting_users.remove(user_id)
+        bot.send_message(user_id, "Поиск собеседника остановлен 🥲.")
+        show_main_buttons(user_id)  # Показываем основные кнопки
+    else:
+        bot.send_message(user_id, "Вы не в поиске🤚.")
+        show_main_buttons(user_id)  # Показываем основные кнопки
+# Обработка команды для получения количества пользователей
+@bot.message_handler(func=lambda message: message.text.lower() == "alluser")
+def handle_alluser(message):
+    user_id = message.chat.id
+    ADMIN_ID = 6745031200  # Замените на ваш ID
+
+    # Проверяем, является ли пользователь администратором
+    if user_id == ADMIN_ID:
+        conn = sqlite3.connect(USER_DB_PATH)
+        cursor = conn.cursor()
+
+        # Получаем количество всех пользователей
+        cursor.execute('SELECT COUNT(*) FROM users')
+        user_count = cursor.fetchone()[0]  # Получаем количество пользователей
+
+        conn.close()
+
+        # Отправляем количество пользователю
+        bot.send_message(user_id, f"Количество пользователей, запустивших бота: {user_count}")
+    else:
+        bot.send_message(user_id, "У вас нет прав для получения этой информации.")
+
+# Разрыв связи при команде "/stop"
+@bot.message_handler(func=lambda message: message.text == "/stop")
+def stop_chat(message):
+    user_id = message.chat.id
+    if user_id in chat_partners:
+        partner_id = chat_partners[user_id]
+        bot.send_message(user_id, "Вы разорвали связь.")
+        bot.send_message(partner_id, "Собеседник разорвал с вами связь😔.")
+        # Удаляем из обоих пользователей чат-партнеров
+        del chat_partners[user_id]
+        del chat_partners[partner_id]
+        show_main_buttons(user_id)
+        show_main_buttons(partner_id)
+
+@bot.message_handler(func=lambda message: message.text == "/next")
+def next_chat(message):
+    user_id = message.chat.id
+    if user_id in chat_partners:
+        partner_id = chat_partners[user_id]
+        bot.send_message(user_id, "Ищем нового собеседника... 🔍")
+        bot.send_message(partner_id, "Собеседник завершил диалог и начал новый поиск 🔍.")
+        # Удаляем из обоих пользователей чат-партнеров
+        del chat_partners[user_id]
+        del chat_partners[partner_id]
+        show_main_buttons(partner_id)
+        
+        # Начинаем новый поиск для текущего пользователя
+        if user_id not in user_data or "gender" not in user_data[user_id]:
+            bot.send_message(user_id, "Сначала выберите пол.")
+            return
+        
+        # Удаляем кнопки после начала поиска
+        bot.send_message(user_id, "Поиск начат. Кнопки больше не доступны.", reply_markup=ReplyKeyboardRemove())
+        show_stop_search_button(user_id)
+        
+        if user_data[user_id]["premium"]:
+            # Поиск с учетом настроек (по полу)
+            if waiting_users:
+                new_partner_id = waiting_users.pop()
+                # Поиск только по тому же полу
+                if user_data[user_id]["gender"] == user_data[new_partner_id]["gender"]:
+                    chat_partners[user_id] = new_partner_id
+                    chat_partners[new_partner_id] = user_id
+                    bot.send_message(user_id, "🔥Собеседник найден! Начинайте общение.\n/next - Найти другого собеседника\n/stop - Закончить диалог", reply_markup=ReplyKeyboardRemove())
+                    bot.send_message(new_partner_id, "🔥Собеседник найден! Начинайте общение.\n/next - Найти другого собеседника\n/stop - Закончить диалог", reply_markup=ReplyKeyboardRemove())
+                    show_main_buttons(user_id)
+                    show_main_buttons(new_partner_id)
+                else:
+                    waiting_users.add(user_id)
+                    bot.send_message(user_id, "Нет собеседника с таким полом. Ожидайте подходящего.")
+            else:
+                waiting_users.add(user_id)
+                bot.send_message(user_id, "Вы добавлены в очередь. Ожидайте собеседника.")
+        else:
+            # Обычный поиск без премиум настроек
+            if waiting_users:
+                new_partner_id = waiting_users.pop()
+                chat_partners[user_id] = new_partner_id
+                chat_partners[new_partner_id] = user_id
+                bot.send_message(user_id, "🔥Собеседник найден! Начинайте общение.\n/next - Найти другого собеседника\n/stop - Закончить диалог", reply_markup=ReplyKeyboardRemove())
+                bot.send_message(new_partner_id, "🔥Собеседник найден! Начинайте общение.\n/next - Найти другого собеседника\n/stop - Закончить диалог", reply_markup=ReplyKeyboardRemove())
+                show_main_buttons(user_id)
+                show_main_buttons(new_partner_id)
+            else:
+                waiting_users.add(user_id)
+                bot.send_message(user_id, "Вы добавлены в очередь. Ожидайте собеседника.")
+    else:
+        bot.send_message(user_id, "У вас нет активного диалога. Используйте 'Начать поиск 🔍'.")
+
+@bot.message_handler(func=lambda message: message.text == "Личный кабинет 👤")
+def user_profile(message):
+    user_id = message.chat.id
+    if not is_user_subscribed(user_id):
+        return
+
+    if user_id in user_data:
+        tg_username = message.from_user.username
+        username_display = f"@{tg_username}" if tg_username else "Не указан"
+        gender = user_data[user_id]["gender"]
+        premium_status = "Да" if user_data[user_id]["premium"] else "Нет"
+        
+        # Формируем сообщение с информацией о пользователе
+        profile_message = (
+            f"👤 <b>Личный кабинет</b>\n\n"
+            f"📛 <b>Username:</b> {username_display}\n"
+            f"💎 <b>Премиум подписка:</b> {premium_status}\n"
+            f"🚻 <b>Пол:</b> {gender}\n\n"
+            f"🔒 Анонимность: <b>всегда</b>"
+        )
+        bot.send_message(user_id, profile_message, parse_mode="HTML")
+    else:
+        bot.send_message(user_id, "Не удалось найти информацию о вашем аккаунте. Пожалуйста, выберите пол.")
+        ask_gender(user_id)  # Попросим выбрать пол, если этого ещё не сделали.
+
+# Обработка сообщений (пересылка)
+@bot.message_handler(content_types=['text', 'photo', 'video', 'audio', 'voice', 'document', 'sticker'])
+def forward_message(message):
+    user_id = message.chat.id
+    if not is_user_subscribed(user_id):
+        return
+
+    if user_id in chat_partners:
+        partner_id = chat_partners[user_id]
+
+        # Пересылаем сообщение собеседнику (анонимно, без показа username)
+        bot.copy_message(partner_id, user_id, message.message_id)
+    else:
+        bot.send_message(user_id, "У вас сейчас нет собеседника. Нажмите 'Начать поиск 🔍', чтобы найти.")
+
+# Функция для загрузки данных пользователя из базы данных в user_data
+def load_user_data():
+    conn = sqlite3.connect(USER_DB_PATH)
+    cursor = conn.cursor()
+
+    # Получаем все данные из базы
+    cursor.execute('SELECT * FROM users')
+    users = cursor.fetchall()  # Получаем всех пользователей
+
+    for user in users:
+        user_id = user[0]
+        gender = user[1]
+        premium = user[2]
+
+        # Обновляем данные в словаре user_data
+        user_data[user_id] = {
+            "gender": gender,
+            "premium": premium
+        }
+
+    conn.close()
+
+# Вызовем эту функцию при старте бота, чтобы загрузить все данные
+load_user_data()
+
+# Запуск бота
+load_user_data()
+bot.infinity_polling() #сделай чтобы премиум подписка сохранялась в базу данных SQlite а также почему премиум поиск по полу соединяет с рандом челами? Надо же чтобы пол был который выбран
