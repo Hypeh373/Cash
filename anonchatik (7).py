@@ -60,6 +60,12 @@ CHANNEL_ID = normalize_channel(RAW_CHANNEL_ID)
 CHANNEL_USERNAME = CHANNEL_ID[1:] if CHANNEL_ID.startswith('@') else CHANNEL_ID
 SUBSCRIPTION_REQUIRED = bool(CHANNEL_ID)
 
+# Branding settings from env (for updated version)
+CREATOR_BRANDING_ENABLED = os.getenv('CREATOR_BRANDING_ENABLED', 'false').lower() in ('true', '1', 'yes')
+CREATOR_CONTACT_URL = os.getenv('CREATOR_CONTACT_URL', get_bot_setting_from_creator(BOT_ID, 'constructor_bot_link', 'https://t.me/GrillCreate_bot'))
+CREATOR_CONTACT_LABEL = os.getenv('CREATOR_CONTACT_LABEL', get_bot_setting_from_creator(BOT_ID, 'constructor_bot_link_text', '🤖 Хочу такого же бота'))
+CREATOR_BRANDING_MESSAGE = os.getenv('CREATOR_BRANDING_MESSAGE', '🤖 Бот создан с помощью {label_html}')
+
 if not TOKEN:
     print(f"ОШИБКА: Токен бота #{BOT_ID} не найден в БД Creator!")
     sys.exit(1)
@@ -70,6 +76,10 @@ bot = telebot.TeleBot(TOKEN)
 chat_partners = {}  # Для активных пар
 waiting_users = set()  # Для ожидания
 user_data = {}  # Для хранения данных пользователей: пол, премиум-статус
+user_states = {}  # Для состояний админских действий
+user_invoices = {}  # Для инвойсов премиум
+last_check_time = {}  # Для проверки платежей
+users_first_time = set()  # Для новых пользователей
 user_invoices = {}  # Для хранения инвойсов пользователей
 last_check_time = {}  # Время последней проверки статуса
 users_first_time = set()  # Для отслеживания, если пользователь впервые запускает бота
@@ -120,9 +130,34 @@ def update_user_data(user_id, gender=None, premium=None):
         cursor.execute('UPDATE users SET gender = ? WHERE user_id = ?', (gender, user_id))
     if premium is not None:
         cursor.execute('UPDATE users SET premium = ? WHERE user_id = ?', (premium, user_id))
-    
+
     conn.commit()
     conn.close()
+
+def ban_user(user_id, reason):
+    conn = sqlite3.connect(USER_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET banned = 1 WHERE user_id = ?", (user_id,))
+    cursor.execute("INSERT OR REPLACE INTO bans (user_id, reason, created_at) VALUES (?, ?, ?)",
+                   (user_id, reason, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+
+def unban_user(user_id):
+    conn = sqlite3.connect(USER_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET banned = 0 WHERE user_id = ?", (user_id,))
+    cursor.execute("DELETE FROM bans WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+def is_banned(user_id):
+    conn = sqlite3.connect(USER_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT banned FROM users WHERE user_id = ?", (user_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result and result[0] == 1
 
 # Инициализация БД пользователей
 def init_user_db():
@@ -131,7 +166,13 @@ def init_user_db():
     cursor.execute('''CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
         gender TEXT,
-        premium BOOLEAN DEFAULT 0
+        premium BOOLEAN DEFAULT 0,
+        banned BOOLEAN DEFAULT 0
+    )''')
+    cursor.execute('''CREATE TABLE IF NOT EXISTS bans (
+        user_id INTEGER PRIMARY KEY,
+        reason TEXT,
+        created_at TEXT
     )''')
     conn.commit()
     conn.close()
@@ -248,6 +289,58 @@ def show_main_buttons(chat_id):
     premium_button = KeyboardButton("Премиум поиск 👑")
     markup.add(search_button, premium_button)
     bot.send_message(chat_id, "Выберите действие:", reply_markup=markup)
+
+# Admin state handling
+@bot.message_handler(func=lambda m: True)
+def handle_admin_states(message):
+    user_id = message.from_user.id
+    if not is_admin(user_id):
+        return
+
+    state = user_states.get(user_id)
+    if state == 'waiting_broadcast':
+        # Send broadcast
+        conn = sqlite3.connect(USER_DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT user_id FROM users WHERE banned = 0")
+        users = cursor.fetchall()
+        conn.close()
+
+        success_count = 0
+        failure_count = 0
+        for user in users:
+            try:
+                bot.send_message(user[0], message.text)
+                success_count += 1
+            except:
+                failure_count += 1
+
+        bot.send_message(user_id, f"✅ Рассылка завершена!\nУспешно: {success_count}\nОшибок: {failure_count}")
+        del user_states[user_id]
+
+    elif state == 'waiting_ban':
+        parts = message.text.split(maxsplit=1)
+        if len(parts) >= 2:
+            try:
+                target_id = int(parts[0])
+                reason = parts[1]
+                ban_user(target_id, reason)
+                bot.send_message(user_id, f"✅ Пользователь {target_id} забанен. Причина: {reason}")
+            except ValueError:
+                bot.send_message(user_id, "❌ Неверный ID.")
+        else:
+            bot.send_message(user_id, "Формат: ID Причина")
+        del user_states[user_id]
+
+    elif state == 'waiting_unban':
+        try:
+            target_id = int(message.text)
+            unban_user(target_id)
+            bot.send_message(user_id, f"✅ Пользователь {target_id} разбанен.")
+        except ValueError:
+            bot.send_message(user_id, "❌ Неверный ID.")
+        del user_states[user_id]
+
 def send_bulk_message(message_text):
     conn = sqlite3.connect(USER_DB_PATH)
     cursor = conn.cursor()
@@ -670,6 +763,112 @@ def load_user_data():
 
 # Вызовем эту функцию при старте бота, чтобы загрузить все данные
 load_user_data()
+
+# Branding functions
+def _normalize_creator_link(value: str) -> str:
+    if not value:
+        return ""
+    trimmed = value.strip()
+    if not trimmed:
+        return ""
+    if trimmed.startswith("@"):
+        return f"https://t.me/{trimmed.lstrip('@')}"
+    return trimmed
+
+def _derive_creator_label(raw_label: str) -> str:
+    candidate = (raw_label or "").strip()
+    if candidate:
+        return candidate
+    normalized_link = _normalize_creator_link(CREATOR_CONTACT_URL)
+    if normalized_link.startswith("https://t.me/"):
+        username = normalized_link.split("https://t.me/", 1)[1].split("/", 1)[0]
+        if username:
+            return f"@{username}"
+    return normalized_link or ""
+
+def _creator_label_html(label: str, link: str) -> str:
+    display = label or _derive_creator_label("")
+    if not display:
+        return ""
+    safe_display = escape(display)
+    normalized_link = _normalize_creator_link(link)
+    if normalized_link:
+        safe_link = escape(normalized_link)
+        return f"<a href=\"{safe_link}\">{safe_display}</a>"
+    return safe_display
+
+def is_creator_branding_active() -> bool:
+    return CREATOR_BRANDING_ENABLED and bool(CREATOR_CONTACT_URL or CREATOR_CONTACT_LABEL)
+
+def build_creator_branding_markup():
+    if not CREATOR_CONTACT_URL:
+        return None
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton(CREATOR_CONTACT_LABEL, url=CREATOR_CONTACT_URL))
+    return markup
+
+def render_creator_branding_text():
+    if not is_creator_branding_active():
+        return None
+    if not CREATOR_BRANDING_MESSAGE:
+        return None
+    label_value = CREATOR_CONTACT_LABEL or CREATOR_CONTACT_URL
+    label_html = _creator_label_html(label_value, CREATOR_CONTACT_URL)
+    return CREATOR_BRANDING_MESSAGE.format(link=CREATOR_CONTACT_URL, label=label_value, label_html=label_html)
+
+def send_creator_branding_banner(chat_id):
+    text = render_creator_branding_text()
+    markup = build_creator_branding_markup()
+    if text:
+        bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
+
+# Admin functions
+def is_admin(user_id):
+    raw_admins = get_bot_setting_from_creator(BOT_ID, 'admin_ids', '')
+    if raw_admins:
+        admin_ids = [int(x.strip()) for x in raw_admins.split(',') if x.strip().isdigit()]
+        return user_id in admin_ids
+    return False
+
+def admin_menu():
+    markup = InlineKeyboardMarkup(row_width=1)
+    markup.add(InlineKeyboardButton("📣 Рассылка", callback_data="broadcast"))
+    markup.add(InlineKeyboardButton("🚫 Бан/Разбан", callback_data="ban_menu"))
+    markup.add(InlineKeyboardButton("📊 Статистика", callback_data="stats"))
+    return markup
+
+def ban_menu():
+    markup = InlineKeyboardMarkup(row_width=1)
+    markup.add(InlineKeyboardButton("➕ Забанить", callback_data="ban_add"))
+    markup.add(InlineKeyboardButton("♻️ Разбанить", callback_data="ban_remove"))
+    markup.add(InlineKeyboardButton("📋 Список банов", callback_data="ban_list"))
+    markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="admin_back"))
+    return markup
+
+# Update start handler to include branding
+@bot.message_handler(commands=['start'])
+def start(message):
+    user_id = message.chat.id
+    if is_banned(user_id):
+        bot.send_message(user_id, "🚫 Вы заблокированы.")
+        return
+    if is_user_subscribed(user_id):
+        # Send branding banner if active
+        send_creator_branding_banner(user_id)
+        # Main menu with admin button if admin
+        markup = None
+        if is_admin(user_id):
+            markup = ReplyKeyboardMarkup(resize_keyboard=True)
+            markup.add(KeyboardButton("/next"), KeyboardButton("/stop"))
+            markup.add(KeyboardButton("⚙️ Админка"))
+        bot.send_message(user_id, WELCOME_MESSAGE, reply_markup=markup)
+
+# Admin panel handler
+@bot.message_handler(func=lambda message: message.text == "⚙️ Админка")
+def admin_panel(message):
+    if not is_admin(message.from_user.id):
+        return
+    bot.send_message(message.chat.id, "⚙️ Админ панель:", reply_markup=admin_menu())
 
 # Запуск бота
 load_user_data()
