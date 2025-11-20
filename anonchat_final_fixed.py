@@ -317,6 +317,68 @@ def callback_query(call):
         bot.answer_callback_query(call.id, f"Пол для поиска: {target}")
         show_premium_settings(user_id)
 
+      elif call.data == "broadcast":
+          if not is_admin(user_id):
+              bot.answer_callback_query(call.id, "Нет доступа.")
+              return
+          user_states[user_id] = 'waiting_broadcast'
+          bot.answer_callback_query(call.id, "Отправьте текст для рассылки.")
+          bot.send_message(
+              user_id,
+              "✍️ Пришлите текст для рассылки. Он будет отправлен всем пользователям, не находящимся в бане."
+          )
+
+      elif call.data == "ban_menu":
+          if not is_admin(user_id):
+              bot.answer_callback_query(call.id, "Нет доступа.")
+              return
+          user_states.pop(user_id, None)
+          bot.answer_callback_query(call.id)
+          update_admin_callback_message(call, "🚫 Бан/Разбан:", ban_menu())
+
+      elif call.data == "admin_back":
+          if not is_admin(user_id):
+              bot.answer_callback_query(call.id, "Нет доступа.")
+              return
+          user_states.pop(user_id, None)
+          bot.answer_callback_query(call.id)
+          update_admin_callback_message(call, "⚙️ Админ панель:", admin_menu())
+
+      elif call.data == "ban_add":
+          if not is_admin(user_id):
+              bot.answer_callback_query(call.id, "Нет доступа.")
+              return
+          user_states[user_id] = 'waiting_ban'
+          bot.answer_callback_query(call.id, "Введите ID и причину.")
+          bot.send_message(
+              user_id,
+              "Введите ID пользователя и причину бана через пробел.\nПример: 123456789 Спам."
+          )
+
+      elif call.data == "ban_remove":
+          if not is_admin(user_id):
+              bot.answer_callback_query(call.id, "Нет доступа.")
+              return
+          user_states[user_id] = 'waiting_unban'
+          bot.answer_callback_query(call.id, "Введите ID для разбана.")
+          bot.send_message(user_id, "Введите ID пользователя, которого нужно разбанить.")
+
+      elif call.data == "ban_list":
+          if not is_admin(user_id):
+              bot.answer_callback_query(call.id, "Нет доступа.")
+              return
+          user_states.pop(user_id, None)
+          bot.answer_callback_query(call.id)
+          send_ban_list(user_id)
+
+      elif call.data == "stats":
+          if not is_admin(user_id):
+              bot.answer_callback_query(call.id, "Нет доступа.")
+              return
+          user_states.pop(user_id, None)
+          bot.answer_callback_query(call.id)
+          send_admin_stats(user_id)
+
 # Основные кнопки (Начать поиск)
 def show_main_buttons(chat_id):
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
@@ -884,6 +946,78 @@ def ban_menu():
     markup.add(InlineKeyboardButton("📋 Список банов", callback_data="ban_list"))
     markup.add(InlineKeyboardButton("⬅️ Назад", callback_data="admin_back"))
     return markup
+
+
+def update_admin_callback_message(call, text, reply_markup):
+    """Пробует обновить сообщение с инлайн-клавиатурой, иначе шлет новое."""
+    if not call.message:
+        bot.send_message(call.from_user.id, text, reply_markup=reply_markup)
+        return
+    try:
+        bot.edit_message_text(
+            text,
+            chat_id=call.message.chat.id,
+            message_id=call.message.message_id,
+            reply_markup=reply_markup
+        )
+    except Exception:
+        bot.send_message(call.message.chat.id, text, reply_markup=reply_markup)
+
+
+def send_admin_stats(chat_id):
+    conn = sqlite3.connect(USER_DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT COUNT(*) FROM users")
+    total_users = cursor.fetchone()
+    total_users = total_users[0] if total_users else 0
+
+    cursor.execute("SELECT COUNT(*) FROM users WHERE premium = 1")
+    premium_users = cursor.fetchone()
+    premium_users = premium_users[0] if premium_users else 0
+
+    cursor.execute("SELECT COUNT(*) FROM users WHERE banned = 1")
+    banned_users = cursor.fetchone()
+    banned_users = banned_users[0] if banned_users else 0
+
+    conn.close()
+
+    waiting_count = len(waiting_users)
+    active_chats = len(chat_partners) // 2
+
+    stats_message = (
+        "📊 <b>Статистика</b>\n"
+        f"👥 Всего пользователей: <b>{total_users}</b>\n"
+        f"💎 Премиум пользователей: <b>{premium_users}</b>\n"
+        f"🚫 Забанено: <b>{banned_users}</b>\n"
+        f"⏳ В очереди: <b>{waiting_count}</b>\n"
+        f"💬 Активных диалогов: <b>{active_chats}</b>"
+    )
+    bot.send_message(chat_id, stats_message, parse_mode="HTML")
+
+
+def send_ban_list(chat_id, limit=20):
+    conn = sqlite3.connect(USER_DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT user_id, reason, created_at FROM bans ORDER BY created_at DESC LIMIT ?",
+        (limit,)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+
+    if not rows:
+        bot.send_message(chat_id, "📋 Список банов пуст.")
+        return
+
+    lines = []
+    for banned_id, reason, created_at in rows:
+        timestamp = created_at.split('T')[0] if created_at else "-"
+        reason_text = reason or "Без причины"
+        lines.append(f"{banned_id}: {reason_text} ({timestamp})")
+
+    ban_message = "📋 Список банов (последние записи):\n" + "\n".join(lines)
+    bot.send_message(chat_id, ban_message)
 
 @bot.message_handler(commands=['start'])
 def start(message):
