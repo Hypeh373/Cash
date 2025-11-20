@@ -59,6 +59,9 @@ CUSTOMIZATION_UNLOCK_CODE = '73839'
 CUSTOMIZATION_SETTING_KEY = 'customization_unlocked'
 CUSTOM_BUTTON_SETTING_PREFIX = 'custom_button_text_'
 CUSTOM_TEXT_SETTING_PREFIX = 'custom_text_'
+TEXTUAL_SETTINGS_KEYS = {
+    'dicelite_creator_link',
+}
 
 CUSTOM_TEXTS_META = {
     'creator_welcome': {
@@ -952,8 +955,9 @@ def start_bot_process(bot_id):
                 env['DICELITE_CRYPTO_PAY_TOKEN'] = bot_info['dicelite_crypto_pay_token']
             if bot_info.get('dicelite_welcome_text'):
                 env['DICELITE_WELCOME_TEXT'] = bot_info['dicelite_welcome_text']
-            contact_link = get_setting('dicelite_creator_link')
+            contact_link = (get_setting('dicelite_creator_link') or '').strip()
             if contact_link:
+                env['CREATOR_CONTACT_LABEL'] = contact_link
                 normalized_link = contact_link
                 if normalized_link.startswith("@"):
                     normalized_link = f"https://t.me/{normalized_link.lstrip('@')}"
@@ -2715,9 +2719,12 @@ def process_state_input(message):
         
     if action == 'admin_change_setting':
         setting_key = state['setting_key']
+        text_value = (getattr(message, 'text', '') or '').strip()
         try:
-            text_value = message.text.strip()
-            if setting_key == 'MAX_BOTS_PER_USER':
+            if setting_key in TEXTUAL_SETTINGS_KEYS:
+                cleaned_value = " ".join(text_value.split())
+                set_setting(setting_key, cleaned_value)
+            elif setting_key == 'MAX_BOTS_PER_USER':
                 new_limit = int(float(text_value.replace(',', '.')))
                 if new_limit <= 0:
                     raise ValueError
@@ -2726,36 +2733,56 @@ def process_state_input(message):
                 set_setting('MAX_BOTS_PER_USER', str(new_limit))
             else:
                 new_value = float(text_value.replace(",", "."))
-                if new_value < 0: raise ValueError
-                # Проверка минимального значения для cashlait_price
+                if new_value < 0:
+                    raise ValueError
                 if setting_key == 'cashlait_price' and 'min_value' in state:
                     min_val = state['min_value']
                     if new_value < min_val:
                         bot.send_message(user_id, f"❌ Ошибка! Минимальная цена для CashLait бота: {min_val} $")
-                        try: bot.delete_message(user_id, message.message_id)
-                        except: pass
+                        try:
+                            bot.delete_message(user_id, message.message_id)
+                        except Exception:
+                            pass
                         return
                 set_setting(setting_key, str(new_value))
-            if user_id in user_states: del user_states[user_id]
-            
+
+            if user_id in user_states:
+                del user_states[user_id]
+
             bot.delete_message(user_id, state['message_id'])
             bot.delete_message(user_id, message.message_id)
 
             bot.answer_callback_query(state['call_id'], "✅ Настройка обновлена!")
-            
+
             callback_to_return = "admin_op_manage"
             if setting_key == 'vip_price':
                 callback_to_return = "admin_vip_manage"
             elif setting_key in ('cashlait_price', 'cashlait_task_price', 'cashlait_min_completions'):
                 callback_to_return = "admin_cashlait_manage"
-            elif setting_key == 'dicelite_price':
+            elif setting_key in ('dicelite_price', 'dicelite_creator_link'):
                 callback_to_return = "admin_dicelite_manage"
+            elif setting_key == 'dicelite_vip_price':
+                callback_to_return = "admin_vip_manage"
             elif setting_key == 'bots_list_min_users':
                 callback_to_return = "admin_lists_menu"
 
-            call_imitation = types.CallbackQuery(id=state['call_id'], from_user=message.from_user, data=callback_to_return, chat_instance="private", json_string="")
-            
-            fake_message = types.Message(message_id=state['message_id'], from_user=None, date=None, chat=message.chat, content_type='text', options={}, json_string="")
+            call_imitation = types.CallbackQuery(
+                id=state['call_id'],
+                from_user=message.from_user,
+                data=callback_to_return,
+                chat_instance="private",
+                json_string=""
+            )
+
+            fake_message = types.Message(
+                message_id=state['message_id'],
+                from_user=None,
+                date=None,
+                chat=message.chat,
+                content_type='text',
+                options={},
+                json_string=""
+            )
             call_imitation.message = fake_message
 
             handle_admin_callbacks(call_imitation)
@@ -3674,6 +3701,7 @@ def handle_admin_callbacks(call):
 
     parts = call.data.split('_')
     action = parts[1]
+    detail = "_".join(parts[3:]) if len(parts) > 3 else ""
     
     bot.answer_callback_query(call.id)
 
@@ -3700,7 +3728,7 @@ def handle_admin_callbacks(call):
             else:
                 bot.send_message(chat_id, "₽ Управление VIP-статусом:", reply_markup=markup)
         
-        elif sub_action == "set" and parts[3] == "price":
+        elif sub_action == "set" and detail == "price":
             try_edit = message_id is not None
             if try_edit:
                 try:
@@ -3720,7 +3748,7 @@ def handle_admin_callbacks(call):
                 )
             set_user_state(user_id, {'action': 'admin_change_setting', 'setting_key': 'vip_price', 'message_id': msg.message_id, 'call_id': call.id, 'message': call.message})
         
-        elif sub_action == "set" and parts[3] == "dicelite_price":
+        elif sub_action == "set" and detail == "dicelite_price":
             try_edit = message_id is not None
             if try_edit:
                 try:
