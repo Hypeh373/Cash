@@ -6,6 +6,15 @@
     <meta name="mobile-web-app-capable" content="yes">
     <title>Ферма Цыплят</title>
     <style>
+        :root {
+            --panel-bg: rgba(6, 10, 16, 0.78);
+            --panel-border: rgba(255, 255, 255, 0.12);
+            --panel-highlight: rgba(255, 255, 255, 0.28);
+            --accent: #f5c35a;
+            --accent-strong: #ff9d3c;
+            --text-main: #f5f6fa;
+        }
+        
         * {
             margin: 0;
             padding: 0;
@@ -13,205 +22,367 @@
         }
         
         body {
-            font-family: 'Arial', sans-serif;
-            background: linear-gradient(135deg, #87CEEB 0%, #98D8C8 100%);
+            font-family: 'Montserrat', 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: radial-gradient(circle at 18% 20%, #1d2c3f, #050709 70%);
+            color: var(--text-main);
             overflow: hidden;
+            min-height: 100vh;
             display: flex;
-            justify-content: center;
             align-items: center;
-            height: 100vh;
-            width: 100vw;
+            justify-content: center;
             touch-action: none;
             -webkit-touch-callout: none;
             -webkit-user-select: none;
             user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(circle at 10% 20%, rgba(255, 255, 255, 0.18), transparent 55%),
+                radial-gradient(circle at 80% 12%, rgba(255, 199, 124, 0.3), transparent 60%),
+                linear-gradient(115deg, rgba(10, 24, 36, 0.85), rgba(0, 0, 0, 0.85));
+            z-index: -2;
+        }
+        
+        body::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+            opacity: 0.12;
+            z-index: -1;
+            pointer-events: none;
         }
         
         #gameContainer {
             position: relative;
-            border: 4px solid #8B4513;
-            border-radius: 10px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-            background: #90EE90;
+            width: min(1600px, calc(100vw - 3vw));
+            height: min(900px, calc(100vh - 3vh));
+            border-radius: 32px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            overflow: hidden;
+            box-shadow: 0 40px 140px rgba(0, 0, 0, 0.65);
+            background: radial-gradient(circle at 50% 15%, rgba(255, 255, 255, 0.08), rgba(4, 8, 15, 0.9));
+        }
+        
+        #gameContainer::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 35%, rgba(0, 0, 0, 0.45));
+            pointer-events: none;
         }
         
         #gameCanvas {
             display: block;
-            background: linear-gradient(to bottom, #87CEEB 0%, #90EE90 50%, #8B7355 100%);
+            width: 100%;
+            height: 100%;
+            background: transparent;
+            cursor: none;
+        }
+        
+        #presentationLabel {
+            position: absolute;
+            top: 26px;
+            left: 50%;
+            transform: translateX(-50%);
+            letter-spacing: 0.45em;
+            font-size: 12px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.92);
+            padding: 8px 22px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(0, 0, 0, 0.45);
+            backdrop-filter: blur(10px);
+            z-index: 20;
+            font-weight: 600;
+            pointer-events: none;
+        }
+        
+        #ui, #weatherInfo {
+            position: absolute;
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            padding: 18px 22px;
+            border-radius: 22px;
+            backdrop-filter: blur(18px);
+            box-shadow: 0 14px 50px rgba(0, 0, 0, 0.4);
+            z-index: 15;
         }
         
         #ui {
-            position: absolute;
-            top: 5px;
-            left: 5px;
-            background: rgba(255,255,255,0.95);
-            padding: 8px;
-            border-radius: 8px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-            z-index: 10;
-            max-width: 45%;
+            top: 32px;
+            left: 32px;
+            width: min(280px, 40vw);
         }
         
         #ui h2 {
-            margin-bottom: 5px;
-            color: #333;
-            font-size: 14px;
+            margin-bottom: 14px;
+            color: var(--text-main);
+            font-size: 21px;
+            letter-spacing: 0.1em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            text-transform: uppercase;
+        }
+        
+        #ui h2 span {
+            font-size: 24px;
         }
         
         .stat {
-            margin: 3px 0;
-            font-size: 11px;
+            margin: 6px 0;
+            font-size: 14px;
+            letter-spacing: 0.08em;
+            color: rgba(255, 255, 255, 0.88);
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .stat span {
+            font-weight: 600;
+            color: var(--accent);
         }
         
         button {
-            margin: 3px;
-            padding: 6px 10px;
-            background: #4CAF50;
-            color: white;
-            border: none;
-            border-radius: 5px;
+            width: 100%;
+            margin-top: 12px;
+            padding: 10px 14px;
+            background: linear-gradient(120deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0));
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 14px;
+            color: var(--text-main);
             cursor: pointer;
-            font-size: 11px;
-            transition: background 0.2s;
+            font-size: 13px;
+            letter-spacing: 0.08em;
+            transition: transform 0.25s ease, border-color 0.3s ease, background 0.3s ease;
             touch-action: manipulation;
+            backdrop-filter: blur(14px);
+        }
+        
+        button:hover {
+            border-color: var(--panel-highlight);
+            transform: translateY(-1px);
         }
         
         button:active {
-            background: #45a049;
-            transform: scale(0.95);
+            transform: scale(0.98);
+            border-color: var(--accent);
         }
         
         button:disabled {
-            background: #ccc;
+            opacity: 0.5;
             cursor: not-allowed;
         }
         
         #weatherInfo {
-            position: absolute;
-            top: 5px;
-            right: 5px;
-            background: rgba(255,255,255,0.95);
-            padding: 8px;
-            border-radius: 8px;
-            font-size: 11px;
-            max-width: 45%;
+            top: 32px;
+            right: 32px;
+            width: min(230px, 38vw);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        
+        #weatherInfo div {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            padding: 6px 0;
+        }
+        
+        #weatherInfo div:last-child {
+            border-bottom: none;
         }
         
         #inventory {
             position: absolute;
-            bottom: 10px;
+            bottom: 36px;
             left: 50%;
             transform: translateX(-50%);
             display: flex;
-            gap: 8px;
-            background: rgba(0,0,0,0.8);
-            padding: 8px;
-            border-radius: 12px;
-            z-index: 10;
+            gap: 14px;
+            background: rgba(4, 7, 11, 0.85);
+            padding: 12px 26px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+            z-index: 20;
+            backdrop-filter: blur(12px);
         }
         
         .inventory-slot {
-            width: 70px;
-            height: 70px;
-            background: rgba(139, 139, 139, 0.9);
-            border: 3px solid #555;
-            border-radius: 8px;
+            width: 74px;
+            height: 74px;
+            background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.2), rgba(12, 15, 20, 0.9));
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 18px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 35px;
+            font-size: 38px;
+            color: #fff;
             cursor: pointer;
-            transition: all 0.2s;
             position: relative;
+            transition: transform 0.2s ease, border-color 0.3s ease, box-shadow 0.3s ease;
             touch-action: manipulation;
             -webkit-tap-highlight-color: transparent;
         }
         
+        .inventory-slot::after {
+            content: '';
+            position: absolute;
+            inset: 6px;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        
         .inventory-slot:active {
-            background: rgba(169, 169, 169, 0.9);
-            transform: scale(0.9);
+            transform: scale(0.94);
         }
         
         .inventory-slot.selected {
-            border-color: #FFD700;
-            background: rgba(255, 215, 0, 0.4);
-            box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
+            border-color: var(--accent);
+            box-shadow: 0 0 25px rgba(245, 195, 90, 0.45);
         }
         
         .inventory-slot .slot-number {
             position: absolute;
-            top: 3px;
-            left: 3px;
-            font-size: 14px;
-            color: #FFF;
-            background: rgba(0,0,0,0.6);
-            padding: 2px 5px;
-            border-radius: 4px;
-            font-weight: bold;
+            top: 6px;
+            left: 6px;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.85);
+            background: rgba(0, 0, 0, 0.45);
+            padding: 3px 7px;
+            border-radius: 8px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+        }
+        
+        #sceneHint {
+            position: absolute;
+            bottom: 34px;
+            right: 32px;
+            padding: 10px 18px;
+            background: rgba(0, 0, 0, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 18px;
+            font-size: 12px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(12px);
+            z-index: 20;
+        }
+        
+        #sceneHint strong {
+            color: var(--accent);
+            margin-right: 10px;
         }
         
         #cursorTool {
             position: fixed;
             pointer-events: none;
             z-index: 1000;
-            font-size: 50px;
+            font-size: 46px;
             transform: translate(-50%, -50%);
             display: none;
+            text-shadow: 0 12px 30px rgba(0, 0, 0, 0.65);
         }
         
-        /* Мобильные стили */
+        @media (max-width: 1024px) {
+            #gameContainer {
+                width: 100vw;
+                height: 100vh;
+                border-radius: 0;
+            }
+            
+            #presentationLabel {
+                letter-spacing: 0.3em;
+                font-size: 11px;
+            }
+            
+            #inventory {
+                gap: 10px;
+                bottom: 28px;
+            }
+            
+            .inventory-slot {
+                width: 64px;
+                height: 64px;
+                font-size: 32px;
+            }
+        }
+        
         @media (max-width: 768px) {
-            #ui {
-                padding: 6px;
-                max-width: 48%;
+            #ui, #weatherInfo {
+                width: calc(50% - 48px);
+                padding: 14px 16px;
             }
             
             #ui h2 {
-                font-size: 12px;
+                font-size: 16px;
             }
             
             .stat {
-                font-size: 10px;
-                margin: 2px 0;
+                font-size: 12px;
             }
             
             button {
-                padding: 5px 8px;
-                font-size: 10px;
-                margin: 2px;
-            }
-            
-            #weatherInfo {
-                padding: 6px;
-                font-size: 10px;
-                max-width: 48%;
-            }
-            
-            .inventory-slot {
-                width: 65px;
-                height: 65px;
-                font-size: 32px;
-            }
-            
-            .inventory-slot .slot-number {
                 font-size: 12px;
+            }
+            
+            #sceneHint {
+                font-size: 11px;
+                letter-spacing: 0.08em;
+                bottom: 24px;
             }
         }
         
-        @media (max-width: 480px) {
+        @media (max-width: 520px) {
+            #ui, #weatherInfo {
+                width: calc(100% - 64px);
+                left: 32px;
+                right: 32px;
+            }
+            
+            #weatherInfo {
+                top: auto;
+                bottom: 120px;
+            }
+            
+            #inventory {
+                flex-wrap: wrap;
+                border-radius: 24px;
+                padding: 12px 16px;
+            }
+            
             .inventory-slot {
-                width: 60px;
-                height: 60px;
-                font-size: 28px;
+                width: 56px;
+                height: 56px;
+            }
+            
+            #sceneHint {
+                width: calc(100% - 64px);
+                left: 32px;
+                right: 32px;
+                bottom: 16px;
+                text-align: center;
             }
         }
     </style>
 </head>
-<body>
-    <div id="gameContainer">
-        <canvas id="gameCanvas"></canvas>
-        <div id="ui">
-            <h2>🐔 Ферма</h2>
+    <body>
+        <div id="gameContainer">
+            <canvas id="gameCanvas"></canvas>
+            <div id="presentationLabel">Премьера в Москве · Showcase Build</div>
+            <div id="ui">
+                <h2><span>🐥</span> Ферма</h2>
             <div class="stat">Цыплят: <span id="chickenCount">0</span></div>
             <div class="stat">Собак: <span id="dogCount">0</span></div>
             <div class="stat">Яиц: <span id="eggCount">0</span></div>
@@ -238,12 +409,14 @@
                 💧
             </div>
         </div>
+        <div id="sceneHint"><strong>1 • 2 • 3</strong> инструменты · тап/клик по земле — действие</div>
         <div id="cursorTool"></div>
     </div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
+        const gameContainer = document.getElementById('gameContainer');
         
         // Определение мобильного устройства
         const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
@@ -251,8 +424,10 @@
         
         // Установка размера canvas
         function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+            const rect = gameContainer.getBoundingClientRect();
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+            rebuildScenery();
         }
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
@@ -275,6 +450,10 @@
         let selectedTool = 'axe';
         let mouseX = 0;
         let mouseY = 0;
+        let scenery = { hills: [], fencePosts: [], hayBales: [], cropLines: [] };
+        let clouds = [];
+        let dustParticles = [];
+        const dayCycle = 4800;
         
         // Звуковая система
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -343,6 +522,331 @@
             } catch(e) {
                 // Игнорируем ошибки звука
             }
+        }
+        
+        // Художественные и средовые функции
+        function clamp(value, min, max) {
+            return Math.max(min, Math.min(max, value));
+        }
+        
+        function lerp(a, b, t) {
+            return a + (b - a) * t;
+        }
+        
+        function hexToRgb(hex) {
+            if (!hex) return { r: 255, g: 255, b: 255 };
+            const normalized = hex.replace('#', '');
+            const value = normalized.length === 3
+                ? normalized.split('').map(char => char + char).join('')
+                : normalized.padStart(6, '0');
+            const intVal = parseInt(value, 16);
+            return {
+                r: (intVal >> 16) & 255,
+                g: (intVal >> 8) & 255,
+                b: intVal & 255
+            };
+        }
+        
+        function rgbToHex({ r, g, b }) {
+            const component = (c) => c.toString(16).padStart(2, '0');
+            return `#${component(r)}${component(g)}${component(b)}`;
+        }
+        
+        function adjustColor(hex, amount) {
+            const rgb = hexToRgb(hex);
+            const adjusted = {
+                r: clamp(rgb.r + amount, 0, 255),
+                g: clamp(rgb.g + amount, 0, 255),
+                b: clamp(rgb.b + amount, 0, 255)
+            };
+            return rgbToHex(adjusted);
+        }
+        
+        function mixColors(colorA, colorB, t) {
+            const a = hexToRgb(colorA);
+            const b = hexToRgb(colorB);
+            return `rgb(${Math.round(lerp(a.r, b.r, t))}, ${Math.round(lerp(a.g, b.g, t))}, ${Math.round(lerp(a.b, b.b, t))})`;
+        }
+        
+        function getDaylight() {
+            const normalized = (Math.sin(((frameCount % dayCycle) / dayCycle) * Math.PI * 2 - Math.PI / 2) + 1) / 2;
+            return 0.25 + normalized * 0.75;
+        }
+        
+        function generateHillPoints(width, baseY, amplitude) {
+            const points = [];
+            const segments = 12;
+            for (let i = 0; i <= segments; i++) {
+                const x = (i / segments) * width;
+                const variation = Math.sin(i * 0.9 + Math.random() * 0.4) * amplitude * 120;
+                points.push({ x, y: baseY + variation });
+            }
+            return points;
+        }
+        
+        function rebuildScenery() {
+            const width = canvas.width;
+            const height = canvas.height;
+            const horizon = height * 0.58;
+            
+            scenery.hills = [
+                { color: 'rgba(20, 37, 55, 0.9)', points: generateHillPoints(width, horizon - 90, 0.35) },
+                { color: 'rgba(25, 59, 67, 0.75)', points: generateHillPoints(width, horizon - 40, 0.25) }
+            ];
+            
+            scenery.cropLines = Array.from({ length: 12 }, (_, i) => ({
+                y: horizon + i * (height * 0.03) + Math.random() * 12,
+                jitter: Math.random() * 25
+            }));
+            
+            scenery.fencePosts = Array.from({ length: Math.ceil(width / 90) + 4 }, (_, i) => ({
+                x: i * 90 - 60 + Math.random() * 30,
+                height: 50 + Math.random() * 25
+            }));
+            
+            scenery.hayBales = Array.from({ length: Math.max(4, Math.floor(width / 320)) }, () => ({
+                x: Math.random() * width,
+                y: horizon + height * 0.18 + Math.random() * (height * 0.05),
+                size: 38 + Math.random() * 24
+            }));
+            
+            clouds = Array.from({ length: 9 }, () => ({
+                x: Math.random() * width,
+                y: height * 0.1 + Math.random() * height * 0.2,
+                scale: 0.7 + Math.random() * 0.8,
+                opacity: 0.35 + Math.random() * 0.3
+            }));
+        }
+        
+        function drawSky(daylight) {
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, mixColors('#081629', '#7ec3ff', daylight));
+            gradient.addColorStop(0.45, mixColors('#12324d', '#b9e4ff', daylight));
+            gradient.addColorStop(1, mixColors('#1f3b26', '#a3d47c', daylight));
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        
+        function drawSunHalo(daylight) {
+            if (currentWeather === 'rainy') return;
+            const sunX = canvas.width - 140;
+            const sunY = canvas.height * 0.18;
+            const radius = 60 + daylight * 50;
+            const gradient = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, radius * 2.4);
+            gradient.addColorStop(0, `rgba(255, 223, 168, ${0.85 * daylight})`);
+            gradient.addColorStop(1, 'rgba(255, 223, 168, 0)');
+            ctx.save();
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.restore();
+        }
+        
+        function updateCloudLayer() {
+            if (!clouds.length) return;
+            const drift = (windSpeed + 6) * 0.03;
+            clouds.forEach(cloud => {
+                cloud.x += drift * cloud.scale * (currentWeather === 'windy' ? 2 : 1);
+                if (cloud.x - 250 > canvas.width) {
+                    cloud.x = -250;
+                    cloud.y = canvas.height * 0.1 + Math.random() * canvas.height * 0.2;
+                    cloud.opacity = 0.35 + Math.random() * 0.3;
+                }
+            });
+        }
+        
+        function drawCloudLayer() {
+            updateCloudLayer();
+            ctx.save();
+            clouds.forEach(cloud => {
+                ctx.globalAlpha = currentWeather === 'rainy' ? cloud.opacity * 0.6 : cloud.opacity;
+                ctx.fillStyle = 'rgba(255,255,255,0.9)';
+                const baseSize = 80 * cloud.scale;
+                ctx.beginPath();
+                ctx.arc(cloud.x, cloud.y, baseSize, 0, Math.PI * 2);
+                ctx.arc(cloud.x + baseSize * 0.8, cloud.y + 10, baseSize * 0.7, 0, Math.PI * 2);
+                ctx.arc(cloud.x - baseSize * 0.6, cloud.y + 15, baseSize * 0.6, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            ctx.restore();
+        }
+        
+        function drawHills(daylight) {
+            scenery.hills.forEach((hill, index) => {
+                ctx.fillStyle = index === 0
+                    ? mixColors('#0e1c2a', '#274154', daylight)
+                    : mixColors('#1b3d28', '#456c3a', daylight);
+                ctx.beginPath();
+                ctx.moveTo(0, canvas.height);
+                hill.points.forEach(point => ctx.lineTo(point.x, point.y));
+                ctx.lineTo(canvas.width, canvas.height);
+                ctx.closePath();
+                ctx.fill();
+            });
+        }
+        
+        function drawGround(daylight) {
+            const horizon = canvas.height * 0.58;
+            const gradient = ctx.createLinearGradient(0, horizon - 60, 0, canvas.height);
+            gradient.addColorStop(0, mixColors('#274423', '#4f7a32', daylight));
+            gradient.addColorStop(1, mixColors('#3b2a17', '#5c3c1e', daylight));
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, horizon, canvas.width, canvas.height - horizon);
+            
+            ctx.strokeStyle = 'rgba(255,255,255,0.055)';
+            ctx.lineWidth = 1;
+            scenery.cropLines.forEach(line => {
+                ctx.beginPath();
+                ctx.moveTo(-100, line.y);
+                ctx.bezierCurveTo(
+                    canvas.width * 0.25,
+                    line.y + line.jitter,
+                    canvas.width * 0.75,
+                    line.y - line.jitter,
+                    canvas.width + 100,
+                    line.y
+                );
+                ctx.stroke();
+            });
+        }
+        
+        function drawBarn(daylight) {
+            const baseY = canvas.height * 0.68;
+            const baseX = canvas.width * 0.16;
+            const width = 220;
+            const height = 180;
+            
+            ctx.save();
+            ctx.translate(baseX, baseY);
+            ctx.fillStyle = '#7a2b1f';
+            ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+            ctx.lineWidth = 3;
+            ctx.fillRect(0, -height, width, height);
+            
+            const roofGradient = ctx.createLinearGradient(0, -height - 80, width, -height);
+            roofGradient.addColorStop(0, '#b5442d');
+            roofGradient.addColorStop(1, '#872d1f');
+            ctx.fillStyle = roofGradient;
+            ctx.beginPath();
+            ctx.moveTo(-10, -height);
+            ctx.lineTo(width / 2, -height - 90);
+            ctx.lineTo(width + 10, -height);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            
+            ctx.fillStyle = '#44180f';
+            ctx.fillRect(width * 0.35, -height * 0.4, width * 0.3, height * 0.4);
+            ctx.fillStyle = 'rgba(255,255,255,0.3)';
+            ctx.fillRect(width * 0.38, -height * 0.35, width * 0.24, height * 0.3);
+            ctx.restore();
+        }
+        
+        function drawFences() {
+            const baseY = canvas.height * 0.74;
+            ctx.strokeStyle = 'rgba(241, 207, 157, 0.65)';
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(0, baseY);
+            ctx.lineTo(canvas.width, baseY - 10);
+            ctx.moveTo(0, baseY + 24);
+            ctx.lineTo(canvas.width, baseY + 14);
+            ctx.stroke();
+            
+            scenery.fencePosts.forEach(post => {
+                const x = post.x;
+                if (x < -20 || x > canvas.width + 20) return;
+                const baseOffset = (x / canvas.width) * 15;
+                ctx.fillStyle = 'rgba(241, 207, 157, 0.9)';
+                ctx.fillRect(x, baseY - post.height + baseOffset * 0.2, 6, post.height);
+            });
+        }
+        
+        function drawHayBales(daylight) {
+            scenery.hayBales.forEach(bale => {
+                ctx.save();
+                ctx.translate(bale.x, bale.y);
+                const radius = bale.size;
+                const gradient = ctx.createRadialGradient(0, 0, radius * 0.2, 0, 0, radius);
+                gradient.addColorStop(0, mixColors('#ffe9a3', '#fff6c5', daylight));
+                gradient.addColorStop(1, mixColors('#d49c38', '#f0b955', daylight));
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.ellipse(0, 0, radius * 1.4, radius, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.setLineDash([10, 6]);
+                ctx.strokeStyle = 'rgba(0,0,0,0.12)';
+                ctx.stroke();
+                ctx.setLineDash([]);
+                ctx.restore();
+            });
+        }
+        
+        function drawForegroundMist(daylight) {
+            ctx.save();
+            const fog = ctx.createLinearGradient(0, canvas.height * 0.7, 0, canvas.height);
+            fog.addColorStop(0, `rgba(255,255,255,${0.02 * daylight})`);
+            fog.addColorStop(1, `rgba(255,255,255,${0.18 * daylight})`);
+            ctx.fillStyle = fog;
+            ctx.fillRect(0, canvas.height * 0.65, canvas.width, canvas.height * 0.35);
+            
+            const vignette = ctx.createRadialGradient(
+                canvas.width / 2,
+                canvas.height / 2,
+                canvas.width * 0.2,
+                canvas.width / 2,
+                canvas.height / 2,
+                canvas.width * 0.78
+            );
+            vignette.addColorStop(0, 'rgba(0,0,0,0)');
+            vignette.addColorStop(1, 'rgba(0,0,0,0.45)');
+            ctx.fillStyle = vignette;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.restore();
+        }
+        
+        function updateAtmosphericParticles(daylight) {
+            const windInfluence = windSpeed * 0.04;
+            dustParticles = dustParticles.filter(p => {
+                p.x += p.vx + windInfluence;
+                p.y += p.vy;
+                p.life -= 1;
+                return p.life > 0 && p.y < canvas.height;
+            });
+            
+            if (currentWeather !== 'rainy' && dustParticles.length < 160 && Math.random() < 0.3 * daylight) {
+                dustParticles.push({
+                    x: Math.random() * canvas.width,
+                    y: canvas.height * 0.65 + Math.random() * canvas.height * 0.35,
+                    vx: (Math.random() - 0.5) * 0.3,
+                    vy: -0.2 - Math.random() * 0.4,
+                    life: 120 + Math.random() * 80,
+                    size: 1 + Math.random() * 2
+                });
+            }
+        }
+        
+        function drawAtmosphericDust(daylight) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'screen';
+            dustParticles.forEach(p => {
+                ctx.fillStyle = `rgba(245, 195, 90, ${0.15 + (p.life / 200) * 0.2})`;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            ctx.restore();
+        }
+        
+        function drawEnvironment(daylight) {
+            drawSky(daylight);
+            drawSunHalo(daylight);
+            drawCloudLayer();
+            drawHills(daylight);
+            drawGround(daylight);
+            drawBarn(daylight);
+            drawFences();
+            drawHayBales(daylight);
         }
         
         // Выбор инструмента
@@ -513,56 +1017,113 @@
             draw() {
                 ctx.save();
                 ctx.translate(this.x, this.y);
-                ctx.rotate(this.animationFrame * 0.1);
+                
+                const motion = Math.abs(this.vx) + Math.abs(this.vy);
+                const direction = motion > 0.05 ? Math.atan2(this.vy, this.vx) : Math.sin(this.animationFrame * 0.03) * 0.2;
+                ctx.rotate(direction);
+                
+                const idleBob = Math.sin(this.animationFrame * 0.08) * 2;
+                ctx.translate(0, idleBob);
+                
+                const baseSize = this.size * 1.2;
+                
+                // Тень
+                ctx.save();
+                ctx.scale(1, 0.35);
+                ctx.globalAlpha = 0.35;
+                ctx.fillStyle = 'rgba(0,0,0,0.55)';
+                ctx.beginPath();
+                ctx.ellipse(0, baseSize * 2.6, baseSize * 1.4, baseSize * 0.85, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
                 
                 // Тело
-                ctx.fillStyle = this.color;
+                const bodyGradient = ctx.createLinearGradient(-baseSize, -baseSize, baseSize, baseSize);
+                bodyGradient.addColorStop(0, adjustColor(this.color, 25));
+                bodyGradient.addColorStop(1, adjustColor(this.color, -20));
+                ctx.fillStyle = bodyGradient;
                 ctx.beginPath();
-                ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+                ctx.ellipse(-baseSize * 0.15, 0, baseSize * 1.35, baseSize * 0.95, 0, 0, Math.PI * 2);
                 ctx.fill();
                 
-                // Глаза
-                ctx.fillStyle = '#000';
+                // Крыло
+                ctx.fillStyle = adjustColor(this.color, -8);
+                const wingTilt = Math.sin(this.animationFrame * 0.18) * 0.4;
                 ctx.beginPath();
-                ctx.arc(-this.size * 0.3, -this.size * 0.2, 2, 0, Math.PI * 2);
-                ctx.arc(this.size * 0.3, -this.size * 0.2, 2, 0, Math.PI * 2);
+                ctx.ellipse(-baseSize * 0.15, 0, baseSize * 0.85, baseSize * 0.5, wingTilt, 0, Math.PI * 2);
                 ctx.fill();
                 
-                // Клюв
-                ctx.fillStyle = '#FF6347';
+                // Хвост
+                ctx.fillStyle = adjustColor(this.color, -45);
                 ctx.beginPath();
-                ctx.moveTo(0, this.size * 0.5);
-                ctx.lineTo(-this.size * 0.3, this.size * 0.7);
-                ctx.lineTo(this.size * 0.3, this.size * 0.7);
+                ctx.moveTo(-baseSize * 0.9, -baseSize * 0.05);
+                ctx.quadraticCurveTo(-baseSize * 1.2, -baseSize * 0.7, -baseSize * 1.4, baseSize * 0.2);
+                ctx.lineTo(-baseSize * 0.95, baseSize * 0.4);
                 ctx.closePath();
                 ctx.fill();
                 
-                // Крылья (анимация)
-                ctx.fillStyle = this.color;
-                ctx.globalAlpha = 0.7;
+                // Голова
+                ctx.save();
+                ctx.translate(baseSize * 0.95, -baseSize * 0.2);
+                ctx.fillStyle = adjustColor(this.color, 15);
                 ctx.beginPath();
-                ctx.ellipse(-this.size * 0.6, 0, this.size * 0.4, this.size * 0.6, Math.sin(this.animationFrame * 0.2) * 0.3, 0, Math.PI * 2);
-                ctx.ellipse(this.size * 0.6, 0, this.size * 0.4, this.size * 0.6, -Math.sin(this.animationFrame * 0.2) * 0.3, 0, Math.PI * 2);
+                ctx.arc(0, 0, baseSize * 0.45, 0, Math.PI * 2);
                 ctx.fill();
-                ctx.globalAlpha = 1;
                 
-                // Индикатор голода
+                // Гребень
+                ctx.fillStyle = '#d83b3b';
+                ctx.beginPath();
+                for (let i = 0; i < 3; i++) {
+                    const offsetX = -baseSize * 0.1 + i * baseSize * 0.18;
+                    ctx.arc(offsetX, -baseSize * 0.45 - i * 2, baseSize * 0.12, 0, Math.PI * 2);
+                }
+                ctx.fill();
+                
+                // Клюв
+                ctx.fillStyle = '#f6a021';
+                ctx.beginPath();
+                ctx.moveTo(baseSize * 0.45, -baseSize * 0.05);
+                ctx.lineTo(baseSize * 0.8, 0);
+                ctx.lineTo(baseSize * 0.45, baseSize * 0.12);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Глаз
+                ctx.fillStyle = '#fff';
+                ctx.beginPath();
+                ctx.arc(baseSize * 0.2, -baseSize * 0.15, baseSize * 0.08, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(baseSize * 0.23, -baseSize * 0.15, baseSize * 0.04, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+                
+                // Ноги
+                ctx.strokeStyle = '#e7a63b';
+                ctx.lineWidth = Math.max(1.2, this.size * 0.12);
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(-baseSize * 0.25, baseSize * 0.85);
+                ctx.lineTo(-baseSize * 0.3, baseSize * 1.4);
+                ctx.moveTo(baseSize * 0.05, baseSize * 0.85);
+                ctx.lineTo(baseSize * 0.02, baseSize * 1.4);
+                ctx.stroke();
+                
+                // Индикаторы состояния
+                ctx.font = '14px "Montserrat", Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
                 if (this.hunger < 50) {
-                    ctx.fillStyle = '#FF0000';
-                    ctx.font = '10px Arial';
-                    ctx.fillText('🍽️', -5, -this.size - 10);
+                    ctx.fillStyle = '#ffd56a';
+                    ctx.fillText('🍽️', 0, -baseSize * 1.3);
                 }
                 
-                // Индикатор страха
                 if (this.fear > 20) {
-                    ctx.fillStyle = '#FF0000';
-                    ctx.font = '12px Arial';
-                    ctx.fillText('😱', 5, -this.size - 15);
-                    // Визуальный эффект страха
-                    ctx.strokeStyle = 'rgba(255,0,0,0.5)';
+                    ctx.strokeStyle = `rgba(255,0,0,${0.2 + this.fear / 200})`;
                     ctx.lineWidth = 2;
                     ctx.beginPath();
-                    ctx.arc(0, 0, this.size + 5 + Math.sin(this.animationFrame * 0.5) * 3, 0, Math.PI * 2);
+                    ctx.arc(0, 0, baseSize * 1.2 + Math.sin(this.animationFrame * 0.4) * 4, 0, Math.PI * 2);
                     ctx.stroke();
                 }
                 
@@ -627,19 +1188,27 @@
                     if (index > -1) {
                         eggs.splice(index, 1);
                         chickens.push(new Chicken(this.x, this.y, this.type));
-                        sounds.chicken.count++;
+                        playSound('chicken');
                     }
                 }
             }
             
             draw() {
-                ctx.fillStyle = '#FFF';
-                ctx.strokeStyle = '#000';
-                ctx.lineWidth = 1;
+                ctx.save();
+                ctx.shadowColor = 'rgba(0,0,0,0.25)';
+                ctx.shadowBlur = 12;
+                const gradient = ctx.createRadialGradient(this.x - 3, this.y - 5, 2, this.x, this.y, this.size * 1.6);
+                gradient.addColorStop(0, '#fff7e1');
+                gradient.addColorStop(1, '#d8c8a4');
+                ctx.fillStyle = gradient;
                 ctx.beginPath();
-                ctx.ellipse(this.x, this.y, this.size, this.size * 1.2, 0, 0, Math.PI * 2);
+                ctx.ellipse(this.x, this.y, this.size, this.size * 1.3, 0, 0, Math.PI * 2);
                 ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+                ctx.lineWidth = 1;
                 ctx.stroke();
+                ctx.restore();
             }
         }
         
@@ -679,7 +1248,7 @@
                             // Атака
                             if (dist < 20) {
                                 this.target.health -= this.strength;
-                                sounds.attack.count++;
+                                playSound('attack');
                                 if (this.target.health <= 0) {
                                     const index = wildAnimals.indexOf(this.target);
                                     if (index > -1) wildAnimals.splice(index, 1);
@@ -704,54 +1273,71 @@
             draw() {
                 ctx.save();
                 ctx.translate(this.x, this.y);
+                ctx.shadowColor = 'rgba(0,0,0,0.35)';
+                ctx.shadowBlur = 12;
+                const bodyGradient = ctx.createLinearGradient(-20, -10, 20, 10);
+                bodyGradient.addColorStop(0, adjustColor(this.color, 25));
+                bodyGradient.addColorStop(1, adjustColor(this.color, -20));
+                ctx.fillStyle = bodyGradient;
                 
-                // Тело
-                ctx.fillStyle = this.color;
                 ctx.beginPath();
-                ctx.ellipse(0, 0, 15, 10, 0, 0, Math.PI * 2);
+                ctx.ellipse(0, 0, 20, 12, 0, 0, Math.PI * 2);
                 ctx.fill();
                 
-                // Голова
                 ctx.beginPath();
-                ctx.arc(12, -5, 8, 0, Math.PI * 2);
+                ctx.ellipse(18, -6, 12, 10, 0, 0, Math.PI * 2);
                 ctx.fill();
                 
-                // Уши
+                ctx.fillStyle = adjustColor(this.color, -30);
                 ctx.beginPath();
-                ctx.moveTo(15, -10);
-                ctx.lineTo(20, -15);
-                ctx.lineTo(18, -12);
+                ctx.moveTo(18, -11);
+                ctx.lineTo(24, -18);
+                ctx.lineTo(22, -10);
+                ctx.closePath();
+                ctx.fill();
+                ctx.beginPath();
+                ctx.moveTo(14, -10);
+                ctx.lineTo(19, -17);
+                ctx.lineTo(18, -9);
                 ctx.closePath();
                 ctx.fill();
                 
+                // Хвост
+                ctx.fillStyle = adjustColor(this.color, -15);
                 ctx.beginPath();
-                ctx.moveTo(15, -8);
-                ctx.lineTo(20, -13);
-                ctx.lineTo(18, -10);
+                ctx.moveTo(-18, -2);
+                ctx.quadraticCurveTo(-24, -12 + Math.sin(this.animationFrame * 0.3) * 4, -30, 0);
+                ctx.quadraticCurveTo(-24, 6, -18, 2);
                 ctx.closePath();
                 ctx.fill();
                 
                 // Глаза
-                ctx.fillStyle = '#FFF';
+                ctx.fillStyle = '#fff';
                 ctx.beginPath();
-                ctx.arc(14, -6, 2, 0, Math.PI * 2);
-                ctx.arc(16, -6, 2, 0, Math.PI * 2);
+                ctx.arc(23, -6, 3, 0, Math.PI * 2);
                 ctx.fill();
-                
                 ctx.fillStyle = '#000';
                 ctx.beginPath();
-                ctx.arc(14, -6, 1, 0, Math.PI * 2);
-                ctx.arc(16, -6, 1, 0, Math.PI * 2);
+                ctx.arc(24, -6, 1.5, 0, Math.PI * 2);
                 ctx.fill();
                 
-                // Хвост (анимация)
-                ctx.strokeStyle = this.color;
+                // Нос
+                ctx.fillStyle = '#1d1d1d';
+                ctx.beginPath();
+                ctx.arc(28, -2, 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Лапы
+                ctx.strokeStyle = '#f0d9b0';
                 ctx.lineWidth = 3;
                 ctx.beginPath();
-                ctx.moveTo(-15, 0);
-                ctx.quadraticCurveTo(-20, -10 + Math.sin(this.animationFrame * 0.3) * 5, -25, -5);
+                ctx.moveTo(-6, 8);
+                ctx.lineTo(-6, 18);
+                ctx.moveTo(6, 8);
+                ctx.lineTo(6, 18);
                 ctx.stroke();
                 
+                ctx.shadowBlur = 0;
                 ctx.restore();
             }
         }
@@ -790,7 +1376,7 @@
                             // Атака
                             if (dist < 15) {
                                 this.target.health -= 5;
-                                sounds.attack.count++;
+                                playSound('attack');
                                 if (this.target.health <= 0) {
                                     const index = chickens.indexOf(this.target);
                                     if (index > -1) chickens.splice(index, 1);
@@ -811,34 +1397,59 @@
             draw() {
                 ctx.save();
                 ctx.translate(this.x, this.y);
-                
-                ctx.fillStyle = this.type === 'fox' ? '#FF8C00' : '#696969';
+                ctx.shadowColor = 'rgba(0,0,0,0.25)';
+                ctx.shadowBlur = 10;
+                const furColor = this.type === 'fox' ? '#c7672d' : '#5c6366';
+                const gradient = ctx.createLinearGradient(-15, -8, 15, 8);
+                gradient.addColorStop(0, adjustColor(furColor, 20));
+                gradient.addColorStop(1, adjustColor(furColor, -25));
+                ctx.fillStyle = gradient;
                 
                 // Тело
                 ctx.beginPath();
-                ctx.ellipse(0, 0, 12, 8, 0, 0, Math.PI * 2);
+                ctx.ellipse(0, 0, 16, 10, 0, 0, Math.PI * 2);
                 ctx.fill();
                 
                 // Голова
                 ctx.beginPath();
-                ctx.arc(10, -3, 7, 0, Math.PI * 2);
+                ctx.ellipse(14, -4, 10, 9, 0, 0, Math.PI * 2);
                 ctx.fill();
                 
                 // Уши
+                ctx.fillStyle = adjustColor(furColor, -35);
                 ctx.beginPath();
-                ctx.moveTo(12, -8);
-                ctx.lineTo(15, -12);
-                ctx.lineTo(13, -10);
+                ctx.moveTo(12, -10);
+                ctx.lineTo(16, -16);
+                ctx.lineTo(15, -8);
+                ctx.closePath();
+                ctx.fill();
+                ctx.beginPath();
+                ctx.moveTo(9, -9);
+                ctx.lineTo(13, -15);
+                ctx.lineTo(12, -7);
                 ctx.closePath();
                 ctx.fill();
                 
-                // Глаза
-                ctx.fillStyle = '#FF0000';
+                // Морда и глаза
+                ctx.fillStyle = this.type === 'fox' ? '#f0a56c' : '#dcdcdc';
                 ctx.beginPath();
-                ctx.arc(11, -4, 2, 0, Math.PI * 2);
-                ctx.arc(13, -4, 2, 0, Math.PI * 2);
+                ctx.arc(18, -4, 3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(19, -4, 1.5, 0, Math.PI * 2);
                 ctx.fill();
                 
+                // Хвост
+                ctx.fillStyle = adjustColor(furColor, -10);
+                ctx.beginPath();
+                ctx.moveTo(-12, 0);
+                ctx.quadraticCurveTo(-22, 8, -28, -2);
+                ctx.quadraticCurveTo(-20, -10, -12, -4);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.shadowBlur = 0;
                 ctx.restore();
             }
         }
@@ -861,10 +1472,16 @@
             }
             
             draw() {
-                ctx.fillStyle = '#8B4513';
+                ctx.save();
+                ctx.fillStyle = 'rgba(139, 69, 19, 0.9)';
                 ctx.beginPath();
-                ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
+                ctx.ellipse(this.x, this.y, 3.5, 2.3, 0, 0, Math.PI * 2);
                 ctx.fill();
+                ctx.fillStyle = 'rgba(255,255,255,0.3)';
+                ctx.beginPath();
+                ctx.ellipse(this.x - 1, this.y - 1, 1.2, 0.8, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
             }
         }
         
@@ -888,13 +1505,18 @@
             }
             
             draw() {
-                ctx.fillStyle = 'rgba(135, 206, 250, 0.7)';
-                ctx.strokeStyle = 'rgba(30, 144, 255, 0.9)';
-                ctx.lineWidth = 1;
+                ctx.save();
+                const gradient = ctx.createRadialGradient(this.x - 1, this.y - 1, 0, this.x, this.y, this.size);
+                gradient.addColorStop(0, 'rgba(255,255,255,0.85)');
+                gradient.addColorStop(1, 'rgba(135, 206, 250, 0.6)');
+                ctx.fillStyle = gradient;
                 ctx.beginPath();
                 ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
                 ctx.fill();
+                ctx.strokeStyle = 'rgba(30, 144, 255, 0.8)';
+                ctx.lineWidth = 1;
                 ctx.stroke();
+                ctx.restore();
             }
         }
         
@@ -922,30 +1544,6 @@
                 Math.random() * canvas.height,
                 type
             ));
-        }
-        
-        // Рисование солнца
-        function drawSun() {
-            const sunX = canvas.width - 100;
-            const sunY = 100;
-            const sunSize = 40;
-            
-            // Лучи
-            ctx.strokeStyle = '#FFD700';
-            ctx.lineWidth = 2;
-            for (let i = 0; i < 8; i++) {
-                const angle = (i / 8) * Math.PI * 2 + frameCount * 0.01;
-                ctx.beginPath();
-                ctx.moveTo(sunX + Math.cos(angle) * sunSize, sunY + Math.sin(angle) * sunSize);
-                ctx.lineTo(sunX + Math.cos(angle) * (sunSize + 15), sunY + Math.sin(angle) * (sunSize + 15));
-                ctx.stroke();
-            }
-            
-            // Солнце
-            ctx.fillStyle = '#FFD700';
-            ctx.beginPath();
-            ctx.arc(sunX, sunY, sunSize, 0, Math.PI * 2);
-            ctx.fill();
         }
         
         // Погода
@@ -996,32 +1594,8 @@
             // Очистка canvas
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             
-            // Фон с градиентом
-            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-            if (currentWeather === 'sunny') {
-                gradient.addColorStop(0, '#87CEEB');
-                gradient.addColorStop(0.5, '#90EE90');
-                gradient.addColorStop(1, '#8B7355');
-            } else if (currentWeather === 'rainy') {
-                gradient.addColorStop(0, '#708090');
-                gradient.addColorStop(0.5, '#778899');
-                gradient.addColorStop(1, '#696969');
-            } else if (currentWeather === 'snowy') {
-                gradient.addColorStop(0, '#E0E0E0');
-                gradient.addColorStop(0.5, '#F5F5F5');
-                gradient.addColorStop(1, '#FFFFFF');
-            } else {
-                gradient.addColorStop(0, '#B0C4DE');
-                gradient.addColorStop(0.5, '#98D8C8');
-                gradient.addColorStop(1, '#8B7355');
-            }
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            
-            // Солнце
-            if (currentWeather === 'sunny') {
-                drawSun();
-            }
+            const daylight = getDaylight();
+            drawEnvironment(daylight);
             
             // Погода
             updateWeather();
@@ -1030,24 +1604,29 @@
             weatherParticles = weatherParticles.filter(p => {
                 p.y += p.vy;
                 if (p.vx) p.x += p.vx;
-                p.x += windSpeed * 0.1;
+                p.x += windSpeed * (p.type === 'snow' ? 0.04 : 0.08);
                 
+                ctx.save();
                 if (p.type === 'rain') {
-                    ctx.strokeStyle = '#4169E1';
-                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = 'rgba(65, 105, 225, 0.8)';
+                    ctx.lineWidth = 1.5;
                     ctx.beginPath();
                     ctx.moveTo(p.x, p.y);
-                    ctx.lineTo(p.x, p.y + 10);
+                    ctx.lineTo(p.x + windSpeed * 0.1, p.y + 12);
                     ctx.stroke();
                 } else if (p.type === 'snow') {
-                    ctx.fillStyle = '#FFF';
+                    ctx.fillStyle = 'rgba(255,255,255,0.9)';
                     ctx.beginPath();
-                    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                    ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
                     ctx.fill();
                 }
+                ctx.restore();
                 
-                return p.y < canvas.height + 20;
+                return p.y < canvas.height + 30;
             });
+            
+            updateAtmosphericParticles(daylight);
+            drawAtmosphericDust(daylight);
             
             // Обновление зон страха
             fearZones = fearZones.filter(zone => {
@@ -1132,6 +1711,7 @@
             chickens.forEach(chicken => chicken.draw());
             dogs.forEach(dog => dog.draw());
             wildAnimals.forEach(animal => animal.draw());
+            drawForegroundMist(daylight);
             
             // Обновление UI
             document.getElementById('chickenCount').textContent = chickens.length;
