@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Экологические проблемы Старобельска и их решения</title>
+    <meta
+      name="description"
+      content="Интерактивный проект о состоянии окружающей среды Старобельска: проблемы, решения, проекты озеленения и фотоотчёты инициатив."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&family=Playfair+Display:wght@600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="hero" id="hero">
+      <div class="hero__overlay"></div>
+      <nav class="nav" aria-label="Главная навигация">
+        <a class="nav__logo" href="#hero">
+          <span>Staro</span>Green
+        </a>
+        <button class="nav__toggle" aria-label="Открыть меню">
+          <span></span><span></span><span></span>
+        </button>
+        <ul class="nav__list">
+          <li><a href="#about">Проект</a></li>
+          <li><a href="#problems">Проблемы</a></li>
+          <li><a href="#solutions">Решения</a></li>
+          <li><a href="#gallery">Галерея</a></li>
+          <li><a href="#contacts">Контакты</a></li>
+        </ul>
+        <a class="nav__cta" href="#gallery-form">Присоединиться</a>
+      </nav>
+
+      <div class="hero__content">
+        <p class="hero__eyebrow">Экология Старобельска • 2025</p>
+        <h1>
+          Экологические проблемы Старобельска и их реальные решения
+        </h1>
+        <p class="hero__lead">
+          Мы собираем данные, подключаем жителей и показываем, как совместные
+          инициативы — от защиты Айдара до создания зелёных маршрутов — меняют
+          город уже сегодня.
+        </p>
+        <div class="hero__actions">
+          <a class="btn btn--primary" href="#solutions">Смотреть план</a>
+          <a class="btn btn--ghost" href="#gallery">Фото проектов</a>
+        </div>
+        <dl class="hero__stats">
+          <div>
+            <dt>7 проблемных зон</dt>
+            <dd>под постоянным мониторингом</dd>
+          </div>
+          <div>
+            <dt>1200 деревьев</dt>
+            <dd>посажено за последние 18 месяцев</dd>
+          </div>
+          <div>
+            <dt>450 волонтёров</dt>
+            <dd>участвуют в субботниках и лабораториях</dd>
+          </div>
+        </dl>
+      </div>
+      <div class="hero__scroll" aria-hidden="true">
+        <span>Скролл вниз</span>
+        <i></i>
+      </div>
+    </header>
+
+    <main>
+      <section class="intro" id="about" data-animate>
+        <div class="intro__media">
+          <div class="intro__ripple"></div>
+          <img
+            src="assets/images/forest_canopy.jpg"
+            alt="Зелёный массив возле Старобельска"
+          />
+        </div>
+        <div class="intro__text">
+          <p class="eyebrow">О проекте</p>
+          <h2>Город, который слушает реку, ветер и людей</h2>
+          <p>
+            Старобельск — один из наиболее зелёных городов Луганщины, однако
+            последние десятилетия нагрузка на природные системы растёт. Мы
+            объединяем исследования, цифровые инструменты и живые инициативы, чтобы
+            отследить главные экологические проблемы и поддержать команды, которые
+            уже внедряют решения.
+          </p>
+          <ul class="intro__list">
+            <li>Полевой мониторинг воды, воздуха и шумовой нагрузки</li>
+            <li>Сценарии адаптации к засухам и паводкам до 2035 года</li>
+            <li>Оцифрованные маршруты озеленения дворов и общественных пространств</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="problems" id="problems" data-animate>
+        <div class="section-header">
+          <p class="eyebrow">Проблемы</p>
+          <h2>Что угрожает экосистемам Старобельска</h2>
+          <p>
+            Мы фиксируем первопричины, масштаб и скорость изменений, чтобы у каждой
+            проблемы было измеримое решение и ответственный координатор.
+          </p>
+        </div>
+        <div class="problem-grid">
+          <article class="problem-card">
+            <span class="problem-card__tag problem-card__tag--high">Айдар</span>
+            <h3>Сбросы без очистки</h3>
+            <p>
+              Сточные воды из частного сектора попадают в Айдар, уменьшая
+              содержание кислорода и ставя под угрозу нерестовые участки.
+            </p>
+            <ul>
+              <li>32 частных выпусков без фильтрации</li>
+              <li>2 км береговой линии требуют берегоукрепления</li>
+            </ul>
+          </article>
+          <article class="problem-card">
+            <span class="problem-card__tag problem-card__tag--medium">Воздух</span>
+            <h3>Пылевые выбросы и транспорт</h3>
+            <p>
+              Сезонные буряны и грузовой поток трассы Н26 поднимают уровень PM10
+              выше нормы на 38&nbsp;% в июле–августе.
+            </p>
+            <ul>
+              <li>Нет зелёных барьеров вдоль 5 км магистрали</li>
+              <li>Лаборатория фиксирует всплески каждые 6 часов</li>
+            </ul>
+          </article>
+          <article class="problem-card">
+            <span class="problem-card__tag problem-card__tag--medium">Почвы</span>
+            <h3>Стихийные свалки</h3>
+            <p>
+              На окраинах сёл Преображенка и Чмыровка обнаружено 14 точек с
+              накоплением строительного мусора и пластика.
+            </p>
+            <ul>
+              <li>Нагрузка на пойменные луга и пастбища</li>
+              <li>Очистка требует 1,2 млн ₴ и спецтехники</li>
+            </ul>
+          </article>
+          <article class="problem-card">
+            <span class="problem-card__tag problem-card__tag--low">Зелёный каркас</span>
+            <h3>Стареющие насаждения</h3>
+            <p>
+              48&nbsp;% липовых аллей старше 50 лет и подвержены всыханию. Нужен
+              план поэтапного обновления и капельного полива.
+            </p>
+            <ul>
+              <li>Оцифровано 3 200 деревьев в ГИС</li>
+              <li>Пилот по капельному поливу в сквере Шевченко</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="solutions" id="solutions" data-animate>
+        <div class="section-header">
+          <p class="eyebrow">Дорожная карта</p>
+          <h2>Запланированные решения и партнёры</h2>
+          <p>
+            Каждое направление закреплено за коалицией: громада, бизнес,
+            преподаватели и волонтёры. Прогресс обновляется в реальном времени.
+          </p>
+        </div>
+        <ol class="timeline">
+          <li>
+            <div class="timeline__point">I квартал 2025</div>
+            <div class="timeline__card">
+              <h3>Мобильная станция мониторинга Айдара</h3>
+              <p>
+                Лаборатория устанавливает датчики pH, электропроводности и уровня
+                аммония. Отчёт доступен жителям через Telegram-бот.
+              </p>
+            </div>
+          </li>
+          <li>
+            <div class="timeline__point">II квартал 2025</div>
+            <div class="timeline__card">
+              <h3>Зелёный пояс вдоль Н26</h3>
+              <p>
+                Совместно с дорожной службой высаживаем 2 400 кустарников и 600
+                деревьев, создавая шумозащитный и пылеулавливающий барьер.
+              </p>
+            </div>
+          </li>
+          <li>
+            <div class="timeline__point">III квартал 2025</div>
+            <div class="timeline__card">
+              <h3>Экопункты и раздельный сбор</h3>
+              <p>
+                Открываем 5 модульных точек приёма пластика и стекла. Доход идёт на
+                обслуживание сквера и просветительские программы.
+              </p>
+            </div>
+          </li>
+          <li>
+            <div class="timeline__point">IV квартал 2025</div>
+            <div class="timeline__card">
+              <h3>Обновление липовых аллей</h3>
+              <p>
+                ГИС-карта подсказывает деревья, требующие замены. Саженцы получают
+                капельный полив и мульчирование.
+              </p>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="impact" data-animate>
+        <div class="section-header">
+          <p class="eyebrow">Измеряем влияние</p>
+          <h2>Прозрачные показатели для жителей и инвесторов</h2>
+        </div>
+        <div class="impact__grid">
+          <article>
+            <h3>-22&nbsp;%</h3>
+            <p>Среднее снижение концентрации нитратов в Айдаре на участках очистки.</p>
+          </article>
+          <article>
+            <h3>18&nbsp;дворов</h3>
+            <p>Перешли на тенистые маршруты с автополивом и датчиками влаги.</p>
+          </article>
+          <article>
+            <h3>3&nbsp;STEM-лаборатории</h3>
+            <p>Школьники собирают данные и ведут собственные проекты по озеленению.</p>
+          </article>
+          <article>
+            <h3>95&nbsp;тонн</h3>
+            <p>Столько отходов вывезли с ликвидированных стихийных свалок.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="gallery" id="gallery" data-animate>
+        <div class="section-header">
+          <p class="eyebrow">Фото</p>
+          <h2>Фотоотчёт инициатив и зелёных трансформаций</h2>
+          <p>
+            Раздел можно обновлять прямо на сайте: загружайте свежие кадры юных
+            дендрологов, рекультивации дворов и очистки берега Айдара.
+          </p>
+        </div>
+        <div class="gallery__layout">
+          <div class="gallery-grid" data-gallery-grid>
+            <figure class="gallery-card">
+              <div class="gallery-card__image">
+                <img src="assets/images/community_cleanup.jpg" alt="Волонтёры очищают берег реки Айдар" />
+                <span class="gallery-card__tag">Очистка берегов</span>
+              </div>
+              <figcaption>
+                <h3>Берег Айдара без пластика</h3>
+                <p class="gallery-card__meta">Кооператив «Чистый Айдар» • октябрь 2024</p>
+                <p>50 волонтёров собрали 6,2&nbsp;тонны отходов и укрепили склон ивовыми кольями.</p>
+              </figcaption>
+            </figure>
+            <figure class="gallery-card">
+              <div class="gallery-card__image">
+                <img src="assets/images/forest_canopy.jpg" alt="Посадки молодых деревьев вдоль улицы" />
+                <span class="gallery-card__tag">Озеленение</span>
+              </div>
+              <figcaption>
+                <h3>Липовый коридор на улице Свободы</h3>
+                <p class="gallery-card__meta">Молодёжь «СтароGreen» • май 2024</p>
+                <p>Закладка «зелёного туннеля» с капельным поливом и сенсорными узлами влажности.</p>
+              </figcaption>
+            </figure>
+            <figure class="gallery-card">
+              <div class="gallery-card__image">
+                <img src="assets/images/river_recovery.jpg" alt="Мониторинг качества воды в переносной лаборатории" />
+                <span class="gallery-card__tag">Мониторинг</span>
+              </div>
+              <figcaption>
+                <h3>Полевые измерения Айдара</h3>
+                <p class="gallery-card__meta">Эколаб Старобельска • август 2024</p>
+                <p>Передвижная станция следит за pH, температурой и аммонием в 12 точках реки.</p>
+              </figcaption>
+            </figure>
+            <figure class="gallery-card">
+              <div class="gallery-card__image">
+                <img src="assets/images/city_garden.jpg" alt="Сквер с газоном и современными скамейками" />
+                <span class="gallery-card__tag">Городские парки</span>
+              </div>
+              <figcaption>
+                <h3>Пилотный «умный» сквер</h3>
+                <p class="gallery-card__meta">Партнёрство бизнеса • декабрь 2024</p>
+                <p>Солнечные панели питают подсветку и зарядки, а сенсоры следят за состоянием газона.</p>
+              </figcaption>
+            </figure>
+          </div>
+
+          <form class="gallery-form" id="gallery-form" data-gallery-form>
+            <h3>Добавить фото проекта</h3>
+            <p>Заполните короткую форму: запись появится в галерее и сохранится в этом браузере.</p>
+            <label class="form-field">
+              <span>Название инициативы</span>
+              <input type="text" name="title" placeholder="Например, «Зелёный двор на Лозовом»" required />
+            </label>
+            <label class="form-field">
+              <span>Категория</span>
+              <select name="category" required>
+                <option value="">Выберите...</option>
+                <option value="Озеленение">Озеленение</option>
+                <option value="Очистка">Очистка</option>
+                <option value="Мониторинг">Мониторинг</option>
+                <option value="Просвещение">Просвещение</option>
+              </select>
+            </label>
+            <label class="form-field">
+              <span>Краткое описание</span>
+              <textarea name="description" rows="3" placeholder="Что произошло, кто участвовал, какой результат" required></textarea>
+            </label>
+            <label class="form-field form-field--file">
+              <span>Фотография (JPG/PNG)</span>
+              <input type="file" name="photo" accept="image/*" required />
+              <small data-file-label>Файл не выбран</small>
+            </label>
+            <button class="btn btn--primary" type="submit">Опубликовать фото</button>
+            <p class="form-status" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer" id="contacts">
+      <div>
+        <a class="nav__logo" href="#hero"><span>Staro</span>Green</a>
+        <p>
+          Экологический портал Старобельска: аналитика, сообщества, открытые
+          данные и сервис публикации инициатив.
+        </p>
+      </div>
+      <div>
+        <p class="eyebrow">Контакты</p>
+        <ul class="footer__links">
+          <li><a href="mailto:eco@starogreen.ua">eco@starogreen.ua</a></li>
+          <li><a href="tel:+380506001122">+38&nbsp;050&nbsp;600&nbsp;11&nbsp;22</a></li>
+          <li><a href="https://t.me/starogreen" target="_blank" rel="noreferrer">t.me/starogreen</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="eyebrow">Документы</p>
+        <ul class="footer__links">
+          <li><a href="#solutions">Публичная дорожная карта</a></li>
+          <li><a href="#problems">Реинвентаризация 2024</a></li>
+          <li><a href="#gallery">Фотоархив инициатив</a></li>
+        </ul>
+      </div>
+    </footer>
+
+    <template id="gallery-card-template">
+      <figure class="gallery-card">
+        <div class="gallery-card__image">
+          <img src="" alt="" />
+          <span class="gallery-card__tag"></span>
+        </div>
+        <figcaption>
+          <h3></h3>
+          <p class="gallery-card__meta"></p>
+          <p></p>
+        </figcaption>
+      </figure>
+    </template>
+
+    <script src="script.js" type="module"></script>
+  </body>
+</html>
