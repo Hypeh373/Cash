@@ -198,7 +198,7 @@
   const CONFIG = {
     maxDepth: 7,
     growthDelayPerLevel: 0.11,
-    baseGrowthSpeed: 0.00022,
+    baseGrowthSpeed: 0.00015,
     pulseBoost: 0.04,
     sawRadius: 28,
     sawCooldown: 140,
@@ -258,28 +258,59 @@
   let clouds = [];
   let stars = [];
   let rainDrops = [];
+  let rainSplashes = [];
+  let puddles = [];
   let insects = [];
   let worms = [];
   let birdOnTree = null;
+  let snowflakes = [];
+  let frostParticles = [];
+  let snowman = null;
+  let lightning = null;
+  let fallingLeaves = [];
+  let butterflies = [];
+  let squirrels = [];
+  let rabbits = [];
+  let dewdrops = [];
+  let mushrooms = [];
+  let flowers = [];
+  let fallenFruits = [];
+  let shadows = [];
   
   // Погода
-  let weather = 'sunny'; // sunny, cloudy, rainy
+  let weather = 'sunny'; // sunny, cloudy, rainy, stormy, snowy
   let weatherTimer = 0;
+  let weatherTransition = 0;
+  let targetWeather = 'sunny';
   let sunIntensity = 1;
+  let skyDarkness = 0;
+  let thunderTimer = 0;
   
   // Звуки
   let audioContext = null;
   let windGain = null;
   let birdsGain = null;
   let rainGain = null;
+  let thunderGain = null;
   let windSource = null;
   let rainSource = null;
 
   const sawState = { active: false, x: 0, y: 0, lastCut: 0 };
+  const prunedLocations = new Map();
 
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
   const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+  const easeInOutCubic = (t) => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
   const seededRandom = (seed) => (Math.sin(seed * 9341.13) + 1) / 2;
+  const lerp = (a, b, t) => a + (b - a) * t;
+
+  function getSeasonType() {
+    const seasonValue = (season % (Math.PI * 2)) / (Math.PI * 2);
+    if (seasonValue < 0.25) return 'spring';
+    if (seasonValue < 0.5) return 'summer';
+    if (seasonValue < 0.75) return 'autumn';
+    return 'winter';
+  }
 
   function initAudio() {
     try {
@@ -287,14 +318,17 @@
       windGain = audioContext.createGain();
       birdsGain = audioContext.createGain();
       rainGain = audioContext.createGain();
+      thunderGain = audioContext.createGain();
       
       windGain.connect(audioContext.destination);
       birdsGain.connect(audioContext.destination);
       rainGain.connect(audioContext.destination);
+      thunderGain.connect(audioContext.destination);
       
       windGain.gain.value = 0.15;
       birdsGain.gain.value = 0.12;
       rainGain.gain.value = 0;
+      thunderGain.gain.value = 0;
       
       startWindSound();
       startBirdsSound();
@@ -324,7 +358,6 @@
     filter.connect(windGain);
     windSource.start();
     
-    // Плавное изменение громкости в зависимости от ветра
     setInterval(() => {
       if (windGain) {
         windGain.gain.value = 0.1 + Math.abs(wind) * 0.2;
@@ -344,7 +377,6 @@
       oscillator.type = Math.random() > 0.5 ? 'sine' : 'triangle';
       oscillator.frequency.setValueAtTime(baseFreq, audioContext.currentTime);
       
-      // Создаем более реалистичный звук птицы с несколькими нотами
       const notes = 2 + Math.floor(Math.random() * 3);
       for (let i = 0; i < notes; i++) {
         const noteTime = audioContext.currentTime + i * (duration / notes);
@@ -364,16 +396,46 @@
       oscillator.stop(audioContext.currentTime + duration);
     }
     
-    // Периодически играем звуки птиц
     setInterval(() => {
-      if (Math.random() < 0.4 && weather !== 'rainy') {
+      if (Math.random() < 0.4 && weather !== 'rainy' && weather !== 'stormy' && weather !== 'snowy') {
         playBirdCall();
-        // Иногда несколько птиц поют одновременно
         if (Math.random() < 0.3) {
           setTimeout(() => playBirdCall(), 200 + Math.random() * 400);
         }
       }
     }, 3000 + Math.random() * 4000);
+  }
+
+  function playThunder() {
+    if (!audioContext || !thunderGain) return;
+    
+    const duration = 0.5 + Math.random() * 1.5;
+    const buffer = audioContext.createBuffer(1, audioContext.sampleRate * duration, audioContext.sampleRate);
+    const data = buffer.getChannelData(0);
+    
+    for (let i = 0; i < buffer.length; i++) {
+      const t = i / buffer.length;
+      const noise = (Math.random() * 2 - 1) * (1 - t);
+      data[i] = noise * 0.8;
+    }
+    
+    const filter = audioContext.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 200 + Math.random() * 300;
+    
+    const source = audioContext.createBufferSource();
+    const gainNode = audioContext.createGain();
+    
+    gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+    gainNode.gain.linearRampToValueAtTime(0.6, audioContext.currentTime + 0.01);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+    
+    source.buffer = buffer;
+    source.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(thunderGain);
+    source.start(audioContext.currentTime);
+    source.stop(audioContext.currentTime + duration);
   }
 
   function resize() {
@@ -385,10 +447,11 @@
     floatingLights = createFireflies(26);
     mountains = buildMountains();
     clouds = buildClouds();
-    birds = createBirds(8);
+    birds = createBirds(12);
     stars = createStars(110);
     sawState.x = width / 2;
     sawState.y = height / 2;
+    puddles = [];
     
     if (!audioContext) {
       initAudio();
@@ -397,7 +460,6 @@
 
   window.addEventListener('resize', resize);
   
-  // Инициализация аудио при первом взаимодействии пользователя
   function initAudioOnInteraction() {
     if (!audioContext) {
       initAudio();
@@ -435,7 +497,9 @@
       pruned: false,
       regrowAt: 0,
       pruneLength: length * (0.2 + seededRandom(seed + 12) * 0.2),
-      fruits: null
+      fruits: null,
+      pruneLocation: null,
+      pruneOffset: null
     };
 
     if (depth >= CONFIG.maxDepth) {
@@ -509,7 +573,7 @@
   }
 
   function buildClouds() {
-    return Array.from({ length: 6 }).map(() => ({
+    return Array.from({ length: 8 }).map(() => ({
       x: Math.random() * width,
       y: height * (0.08 + Math.random() * 0.2),
       speed: 10 + Math.random() * 25,
@@ -530,7 +594,9 @@
       direction: Math.random() > 0.5 ? 1 : -1,
       amplitude: 6 + Math.random() * 10,
       phase: Math.random() * Math.PI * 2,
-      layer: 0.4 + Math.random() * 0.4
+      layer: 0.4 + Math.random() * 0.4,
+      size: 1 + Math.random() * 0.5,
+      color: Math.random() > 0.5 ? 'brown' : 'gray'
     };
   }
 
@@ -570,8 +636,7 @@
       }
     });
     
-    // Птица садится на дерево
-    if (!birdOnTree && branchSegments.length > 0 && Math.random() < 0.0003) {
+    if (!birdOnTree && branchSegments.length > 0 && Math.random() < 0.0003 && weather !== 'rainy' && weather !== 'stormy' && weather !== 'snowy') {
       const validSegments = branchSegments.filter(s => s.branch.depth > 2);
       if (validSegments.length > 0) {
         const segment = validSegments[Math.floor(Math.random() * validSegments.length)];
@@ -587,7 +652,6 @@
       }
     }
     
-    // Обновляем позицию птицы на дереве
     if (birdOnTree && birdOnTree.segment) {
       const segment = branchSegments.find(s => s.branch === birdOnTree.branch);
       if (segment) {
@@ -597,7 +661,6 @@
       }
     }
     
-    // Птица улетает
     if (birdOnTree && performance.now() - birdOnTree.time > birdOnTree.stayTime) {
       birdOnTree = null;
     }
@@ -618,7 +681,7 @@
   }
   
   function updateInsects(delta) {
-    if (insects.length < 3 && Math.random() < 0.001) {
+    if (insects.length < 3 && Math.random() < 0.001 && getSeasonType() !== 'winter') {
       insects.push(spawnInsect());
     }
     
@@ -656,7 +719,7 @@
   }
   
   function updateWorms(delta) {
-    if (worms.length < 2 && Math.random() < 0.0005) {
+    if (worms.length < 2 && Math.random() < 0.0005 && getSeasonType() !== 'winter') {
       worms.push(spawnWorm());
     }
     
@@ -673,64 +736,499 @@
       return worm.life > 0;
     });
   }
-  
+
+  function spawnButterfly() {
+    return {
+      x: Math.random() * width,
+      y: height * (0.4 + Math.random() * 0.3),
+      targetX: Math.random() * width,
+      targetY: height * (0.3 + Math.random() * 0.4),
+      speed: 0.2 + Math.random() * 0.3,
+      size: 3 + Math.random() * 4,
+      color: ['orange', 'yellow', 'blue', 'purple', 'pink'][Math.floor(Math.random() * 5)],
+      wingPhase: Math.random() * Math.PI * 2,
+      life: 1,
+      pathPhase: Math.random() * Math.PI * 2
+    };
+  }
+
+  function updateButterflies(delta) {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' || seasonType === 'summer') {
+      if (butterflies.length < 5 && Math.random() < 0.0008) {
+        butterflies.push(spawnButterfly());
+      }
+    }
+    
+    butterflies = butterflies.filter((butterfly) => {
+      const dx = butterfly.targetX - butterfly.x;
+      const dy = butterfly.targetY - butterfly.y;
+      const dist = Math.hypot(dx, dy);
+      
+      if (dist < 10) {
+        butterfly.targetX = Math.random() * width;
+        butterfly.targetY = height * (0.3 + Math.random() * 0.4);
+      }
+      
+      butterfly.x += (dx / dist) * butterfly.speed * delta * 0.008;
+      butterfly.y += (dy / dist) * butterfly.speed * delta * 0.008;
+      butterfly.wingPhase += delta * 0.02;
+      butterfly.pathPhase += delta * 0.001;
+      butterfly.y += Math.sin(butterfly.pathPhase) * 0.5;
+      butterfly.life -= delta * 0.00005;
+      
+      return butterfly.life > 0 && butterfly.y > 0 && butterfly.y < height;
+    });
+  }
+
+  function spawnSquirrel() {
+    const groundY = height - 40;
+    return {
+      x: Math.random() * width,
+      y: groundY,
+      targetX: Math.random() * width,
+      speed: 0.15 + Math.random() * 0.2,
+      direction: Math.random() > 0.5 ? 1 : -1,
+      phase: Math.random() * Math.PI * 2,
+      tailPhase: Math.random() * Math.PI * 2,
+      life: 1,
+      state: 'walking'
+    };
+  }
+
+  function updateSquirrels(delta) {
+    const seasonType = getSeasonType();
+    if (seasonType !== 'winter') {
+      if (squirrels.length < 2 && Math.random() < 0.0003) {
+        squirrels.push(spawnSquirrel());
+      }
+    }
+    
+    squirrels = squirrels.filter((squirrel) => {
+      const dx = squirrel.targetX - squirrel.x;
+      const dist = Math.abs(dx);
+      
+      if (dist < 20) {
+        squirrel.targetX = Math.random() * width;
+        squirrel.direction = dx > 0 ? 1 : -1;
+      }
+      
+      squirrel.x += squirrel.direction * squirrel.speed * delta * 0.5;
+      squirrel.phase += delta * 0.01;
+      squirrel.tailPhase += delta * 0.008;
+      squirrel.life -= delta * 0.00003;
+      
+      if (squirrel.x < 0 || squirrel.x > width) {
+        squirrel.direction *= -1;
+        squirrel.targetX = width / 2;
+      }
+      
+      return squirrel.life > 0;
+    });
+  }
+
+  function spawnRabbit() {
+    const groundY = height - 40;
+    return {
+      x: width * (0.2 + Math.random() * 0.6),
+      y: groundY,
+      hopPhase: Math.random() * Math.PI * 2,
+      hopHeight: 0,
+      direction: Math.random() > 0.5 ? 1 : -1,
+      speed: 0.1 + Math.random() * 0.15,
+      life: 1,
+      restTimer: 0
+    };
+  }
+
+  function updateRabbits(delta) {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' || seasonType === 'summer') {
+      if (rabbits.length < 2 && Math.random() < 0.0002) {
+        rabbits.push(spawnRabbit());
+      }
+    }
+    
+    rabbits = rabbits.filter((rabbit) => {
+      rabbit.restTimer += delta;
+      
+      if (rabbit.restTimer > 3000 + Math.random() * 2000) {
+        rabbit.hopPhase += delta * 0.015;
+        rabbit.hopHeight = Math.abs(Math.sin(rabbit.hopPhase)) * 8;
+        rabbit.x += rabbit.direction * rabbit.speed * delta * 0.4;
+        
+        if (rabbit.hopPhase > Math.PI * 2) {
+          rabbit.hopPhase = 0;
+          rabbit.restTimer = 0;
+        }
+      }
+      
+      if (rabbit.x < width * 0.1 || rabbit.x > width * 0.9) {
+        rabbit.direction *= -1;
+      }
+      
+      rabbit.life -= delta * 0.00002;
+      return rabbit.life > 0;
+    });
+  }
+
+  function spawnDewdrop() {
+    if (branchSegments.length === 0) return null;
+    const segment = branchSegments[Math.floor(Math.random() * branchSegments.length)];
+    const t = Math.random();
+    return {
+      x: segment.x1 + (segment.x2 - segment.x1) * t,
+      y: segment.y1 + (segment.y2 - segment.y1) * t,
+      size: 2 + Math.random() * 3,
+      phase: Math.random() * Math.PI * 2,
+      life: 1
+    };
+  }
+
+  function updateDewdrops(delta) {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' || seasonType === 'summer') {
+      if (dewdrops.length < 15 && Math.random() < 0.001 && weather === 'sunny') {
+        const dewdrop = spawnDewdrop();
+        if (dewdrop) dewdrops.push(dewdrop);
+      }
+    }
+    
+    dewdrops = dewdrops.filter((dewdrop) => {
+      dewdrop.phase += delta * 0.001;
+      dewdrop.life -= delta * 0.00001;
+      if (weather === 'rainy' || weather === 'stormy') {
+        dewdrop.life -= delta * 0.0001;
+      }
+      return dewdrop.life > 0;
+    });
+  }
+
+  function spawnMushroom() {
+    const groundY = height - 40;
+    return {
+      x: width * (0.25 + Math.random() * 0.5),
+      y: groundY,
+      size: 4 + Math.random() * 6,
+      type: Math.random() > 0.7 ? 'red' : 'brown',
+      growth: 0,
+      life: 1
+    };
+  }
+
+  function updateMushrooms(delta) {
+    const seasonType = getSeasonType();
+    if (seasonType === 'autumn') {
+      if (mushrooms.length < 8 && Math.random() < 0.0005) {
+        mushrooms.push(spawnMushroom());
+      }
+    }
+    
+    mushrooms = mushrooms.filter((mushroom) => {
+      mushroom.growth = Math.min(1, mushroom.growth + delta * 0.0001);
+      mushroom.life -= delta * 0.00001;
+      return mushroom.life > 0;
+    });
+  }
+
+  function spawnFlower() {
+    const groundY = height - 40;
+    return {
+      x: width * (0.2 + Math.random() * 0.6),
+      y: groundY,
+      size: 3 + Math.random() * 5,
+      color: ['red', 'yellow', 'blue', 'purple', 'pink', 'white'][Math.floor(Math.random() * 6)],
+      petals: 5 + Math.floor(Math.random() * 3),
+      growth: 0,
+      phase: Math.random() * Math.PI * 2,
+      life: 1
+    };
+  }
+
+  function updateFlowers(delta) {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' || seasonType === 'summer') {
+      if (flowers.length < 12 && Math.random() < 0.0006) {
+        flowers.push(spawnFlower());
+      }
+    }
+    
+    flowers = flowers.filter((flower) => {
+      flower.growth = Math.min(1, flower.growth + delta * 0.00008);
+      flower.phase += delta * 0.0005;
+      flower.life -= delta * 0.00001;
+      if (seasonType === 'winter') {
+        flower.life -= delta * 0.0001;
+      }
+      return flower.life > 0;
+    });
+  }
+
+  function spawnFallingLeaf() {
+    if (branchSegments.length === 0) return null;
+    const segment = branchSegments[Math.floor(Math.random() * branchSegments.length)];
+    const t = Math.random();
+    return {
+      x: segment.x1 + (segment.x2 - segment.x1) * t,
+      y: segment.y1 + (segment.y2 - segment.y1) * t,
+      vx: (Math.random() - 0.5) * 0.2,
+      vy: 0.05 + Math.random() * 0.1,
+      rotation: Math.random() * Math.PI * 2,
+      rotationSpeed: (Math.random() - 0.5) * 0.05,
+      size: 4 + Math.random() * 6,
+      color: Math.random() > 0.5 ? 'yellow' : 'orange',
+      life: 1
+    };
+  }
+
+  function updateFallingLeaves(delta) {
+    const seasonType = getSeasonType();
+    if (seasonType === 'autumn' || lifeStage === 'decline') {
+      if (fallingLeaves.length < 30 && Math.random() < 0.002) {
+        const leaf = spawnFallingLeaf();
+        if (leaf) fallingLeaves.push(leaf);
+      }
+    }
+    
+    fallingLeaves = fallingLeaves.filter((leaf) => {
+      leaf.x += leaf.vx * delta * 0.3;
+      leaf.y += leaf.vy * delta * 0.3;
+      leaf.vx += (Math.random() - 0.5) * 0.001 * delta;
+      leaf.rotation += leaf.rotationSpeed * delta;
+      leaf.life -= delta * 0.0001;
+      
+      return leaf.life > 0 && leaf.y < height;
+    });
+  }
+
+  function spawnFallenFruit() {
+    const groundY = height - 40;
+    return {
+      x: width * (0.3 + Math.random() * 0.4),
+      y: groundY,
+      size: 6 + Math.random() * 8,
+      ripeness: 0.5 + Math.random() * 0.5,
+      phase: Math.random() * Math.PI * 2,
+      life: 1
+    };
+  }
+
+  function updateFallenFruits(delta) {
+    if (lifeStage === 'decline' || lifeStage === 'seedFall') {
+      if (fallenFruits.length < 10 && Math.random() < 0.0003) {
+        fallenFruits.push(spawnFallenFruit());
+      }
+    }
+    
+    fallenFruits = fallenFruits.filter((fruit) => {
+      fruit.phase += delta * 0.0005;
+      fruit.ripeness = Math.min(1.2, fruit.ripeness + delta * 0.00005);
+      fruit.life -= delta * 0.00002;
+      return fruit.life > 0;
+    });
+  }
+
   function updateWeather(delta) {
     weatherTimer += delta;
     
-    // Смена погоды каждые 20-40 секунд
-    if (weatherTimer > 20000 + Math.random() * 20000) {
-      const weathers = ['sunny', 'cloudy', 'rainy'];
+    if (weatherTransition > 0) {
+      weatherTransition = Math.max(0, weatherTransition - delta * 0.0001);
+    }
+    
+    if (weatherTimer > 25000 + Math.random() * 25000) {
+      const seasonType = getSeasonType();
+      const weathers = seasonType === 'winter' 
+        ? ['sunny', 'cloudy', 'snowy']
+        : ['sunny', 'cloudy', 'rainy', 'stormy'];
+      
       const currentIndex = weathers.indexOf(weather);
       let nextIndex = Math.floor(Math.random() * weathers.length);
       if (nextIndex === currentIndex) {
         nextIndex = (nextIndex + 1) % weathers.length;
       }
-      weather = weathers[nextIndex];
-      weatherTimer = 0;
       
-      // Обновляем звук дождя
-      if (rainGain) {
-        if (weather === 'rainy') {
-          if (!rainSource) {
-            startRainSound();
-          }
-          rainGain.gain.value = 0.2;
-        } else {
-          stopRainSound();
-          rainGain.gain.value = 0;
+      targetWeather = weathers[nextIndex];
+      weatherTransition = 1;
+      weatherTimer = 0;
+    }
+    
+    if (weatherTransition > 0) {
+      const transitionSpeed = 0.00015;
+      if (weather !== targetWeather) {
+        weatherTransition = Math.max(0, weatherTransition - delta * transitionSpeed);
+        if (weatherTransition < 0.1) {
+          weather = targetWeather;
+          weatherTransition = 0;
         }
       }
     }
     
-    // Обновляем интенсивность солнца
-    if (weather === 'sunny') {
-      sunIntensity = 0.8 + Math.sin(weatherTimer * 0.0001) * 0.2;
-    } else if (weather === 'cloudy') {
-      sunIntensity = 0.4 + Math.sin(weatherTimer * 0.0001) * 0.2;
+    if (weather === 'stormy') {
+      skyDarkness = Math.min(1, skyDarkness + delta * 0.0001);
+      thunderTimer += delta;
+      if (thunderTimer > 3000 + Math.random() * 5000) {
+        lightning = {
+          x: Math.random() * width,
+          y: 0,
+          intensity: 0.8 + Math.random() * 0.2,
+          life: 0.1
+        };
+        playThunder();
+        thunderTimer = 0;
+      }
     } else {
-      sunIntensity = 0.2;
+      skyDarkness = Math.max(0, skyDarkness - delta * 0.00005);
     }
     
-    // Обновляем капли дождя
-    if (weather === 'rainy') {
-      if (rainDrops.length < 150) {
-        for (let i = 0; i < 3; i++) {
+    if (lightning) {
+      lightning.life -= delta * 0.01;
+      if (lightning.life <= 0) {
+        lightning = null;
+      }
+    }
+    
+    if (weather === 'sunny') {
+      sunIntensity = lerp(sunIntensity, 0.8 + Math.sin(weatherTimer * 0.0001) * 0.2, delta * 0.0001);
+    } else if (weather === 'cloudy') {
+      sunIntensity = lerp(sunIntensity, 0.4 + Math.sin(weatherTimer * 0.0001) * 0.2, delta * 0.0001);
+    } else if (weather === 'rainy' || weather === 'stormy') {
+      sunIntensity = lerp(sunIntensity, 0.2, delta * 0.0001);
+      if (rainGain) {
+        if (!rainSource) {
+          startRainSound();
+        }
+        rainGain.gain.value = weather === 'stormy' ? 0.35 : 0.2;
+      }
+    } else if (weather === 'snowy') {
+      sunIntensity = lerp(sunIntensity, 0.3, delta * 0.0001);
+      if (rainGain) {
+        stopRainSound();
+        rainGain.gain.value = 0;
+      }
+    } else {
+      if (rainGain) {
+        stopRainSound();
+        rainGain.gain.value = 0;
+      }
+    }
+    
+    if (weather === 'rainy' || weather === 'stormy') {
+      const rainIntensity = weather === 'stormy' ? 8 : 4;
+      if (rainDrops.length < 200) {
+        for (let i = 0; i < rainIntensity; i++) {
+          const size = 0.5 + Math.random() * 2;
           rainDrops.push({
             x: Math.random() * width,
-            y: -10,
-            speed: 0.3 + Math.random() * 0.4,
-            length: 8 + Math.random() * 12
+            y: -10 - Math.random() * 50,
+            speed: 0.3 + Math.random() * 0.6 + size * 0.1,
+            length: 5 + Math.random() * 15 + size * 3,
+            size: size,
+            angle: (Math.random() - 0.5) * 0.1
           });
         }
       }
       
       rainDrops = rainDrops.filter((drop) => {
         drop.y += drop.speed * delta * 0.5;
+        drop.x += drop.angle * delta * 0.3;
+        
+        if (drop.y > height - 50) {
+          const groundY = height - 40;
+          if (drop.y >= groundY) {
+            createRainSplash(drop.x, groundY, drop.size);
+            const puddle = puddles.find(p => Math.abs(p.x - drop.x) < 30);
+            if (puddle) {
+              puddle.size = Math.min(40, puddle.size + drop.size * 0.5);
+              puddle.ripples = Math.min(3, puddle.ripples + 0.1);
+            } else if (Math.random() < 0.3) {
+              puddles.push({
+                x: drop.x,
+                y: groundY,
+                size: 5 + drop.size * 2,
+                ripples: 0.5,
+                phase: Math.random() * Math.PI * 2,
+                life: 1
+              });
+            }
+          }
+        }
+        
         return drop.y < height + 20;
       });
     } else {
       rainDrops = [];
+      puddles = puddles.filter(p => {
+        p.life -= delta * 0.00001;
+        return p.life > 0;
+      });
     }
+    
+    if (weather === 'snowy' || getSeasonType() === 'winter') {
+      if (snowflakes.length < 150) {
+        for (let i = 0; i < 2; i++) {
+          snowflakes.push({
+            x: Math.random() * width,
+            y: -10,
+            speed: 0.05 + Math.random() * 0.15,
+            size: 2 + Math.random() * 4,
+            drift: (Math.random() - 0.5) * 0.3,
+            rotation: Math.random() * Math.PI * 2,
+            rotationSpeed: (Math.random() - 0.5) * 0.02
+          });
+        }
+      }
+      
+      snowflakes = snowflakes.filter((flake) => {
+        flake.y += flake.speed * delta * 0.3;
+        flake.x += flake.drift * delta * 0.1;
+        flake.rotation += flake.rotationSpeed * delta;
+        return flake.y < height + 20;
+      });
+      
+      if (getSeasonType() === 'winter' && !snowman && Math.random() < 0.0001) {
+        snowman = {
+          x: width * (0.3 + Math.random() * 0.4),
+          y: height - 40,
+          buildProgress: 0,
+          phase: Math.random() * Math.PI * 2
+        };
+      }
+      
+      if (snowman) {
+        snowman.buildProgress = Math.min(1, snowman.buildProgress + delta * 0.00005);
+        snowman.phase += delta * 0.0005;
+      }
+    } else {
+      snowflakes = [];
+      if (snowman && getSeasonType() !== 'winter') {
+        snowman = null;
+      }
+    }
+    
+    updateRainSplashes(delta);
+  }
+
+  function createRainSplash(x, y, size) {
+    for (let i = 0; i < 3 + Math.floor(size); i++) {
+      rainSplashes.push({
+        x: x + (Math.random() - 0.5) * 10,
+        y: y,
+        vx: (Math.random() - 0.5) * 0.4,
+        vy: -0.3 - Math.random() * 0.4,
+        size: 1 + Math.random() * 2,
+        life: 1
+      });
+    }
+  }
+
+  function updateRainSplashes(delta) {
+    rainSplashes = rainSplashes.filter((splash) => {
+      splash.x += splash.vx * delta * 0.5;
+      splash.y += splash.vy * delta * 0.5;
+      splash.vy += 0.0005 * delta;
+      splash.life -= delta * 0.003;
+      return splash.life > 0 && splash.y < height;
+    });
   }
   
   function startRainSound() {
@@ -878,21 +1376,38 @@
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
     let dawn = 0.2 + Math.sin(season * 0.6) * 0.1;
     
-    // Влияние погоды на цвет неба
-    if (weather === 'rainy') {
+    const seasonType = getSeasonType();
+    const isWinter = seasonType === 'winter';
+    
+    if (weather === 'rainy' || weather === 'stormy') {
       dawn *= 0.5;
     } else if (weather === 'cloudy') {
       dawn *= 0.7;
+    } else if (weather === 'snowy' || isWinter) {
+      dawn *= 0.6;
     }
     
-    gradient.addColorStop(0, `rgba(${20 + dawn * 120}, ${40 + dawn * 80}, ${110 + dawn * 50}, 1)`);
-    gradient.addColorStop(0.55, '#09152f');
-    gradient.addColorStop(1, '#030711');
+    const darken = skyDarkness * 0.4;
+    const r = Math.max(0, Math.min(255, (20 + dawn * 120) * (1 - darken)));
+    const g = Math.max(0, Math.min(255, (40 + dawn * 80) * (1 - darken)));
+    const b = Math.max(0, Math.min(255, (110 + dawn * 50) * (1 - darken)));
+    
+    if (isWinter) {
+      gradient.addColorStop(0, `rgba(${Math.min(255, r + 30)}, ${Math.min(255, g + 30)}, ${Math.min(255, b + 40)}, 1)`);
+    } else {
+      gradient.addColorStop(0, `rgba(${r}, ${g}, ${b}, 1)`);
+    }
+    gradient.addColorStop(0.55, isWinter ? '#1a2330' : '#09152f');
+    gradient.addColorStop(1, isWinter ? '#0a1118' : '#030711');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
 
-    // Солнце
-    if (weather === 'sunny' || weather === 'cloudy') {
+    if (lightning) {
+      ctx.fillStyle = `rgba(255, 255, 255, ${lightning.intensity * lightning.life})`;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    if ((weather === 'sunny' || weather === 'cloudy') && !isWinter) {
       const sunX = width * 0.8;
       const sunY = height * 0.15;
       const sunRadius = 40 * sunIntensity;
@@ -915,24 +1430,145 @@
 
     stars.forEach((star) => {
       const twinkle = 0.5 + Math.sin(time * star.speed + star.phase) * 0.4;
-      const opacity = weather === 'rainy' ? 0 : (0.15 + twinkle * 0.2);
+      const opacity = (weather === 'rainy' || weather === 'stormy') ? 0 : (0.15 + twinkle * 0.2);
       ctx.fillStyle = `rgba(255, 255, 255, ${opacity})`;
       ctx.fillRect(star.x * width, star.y * height * 0.5, star.size, star.size);
     });
   }
   
   function drawRain() {
-    if (weather !== 'rainy') return;
-    
-    ctx.strokeStyle = 'rgba(150, 180, 255, 0.6)';
-    ctx.lineWidth = 1.5;
+    if (weather !== 'rainy' && weather !== 'stormy') return;
     
     rainDrops.forEach((drop) => {
+      const alpha = 0.4 + drop.size * 0.2;
+      ctx.strokeStyle = `rgba(150, 180, 255, ${alpha})`;
+      ctx.lineWidth = drop.size;
       ctx.beginPath();
       ctx.moveTo(drop.x, drop.y);
-      ctx.lineTo(drop.x, drop.y + drop.length);
+      ctx.lineTo(drop.x + drop.angle * 10, drop.y + drop.length);
       ctx.stroke();
     });
+    
+    rainSplashes.forEach((splash) => {
+      ctx.fillStyle = `rgba(150, 180, 255, ${splash.life * 0.6})`;
+      ctx.beginPath();
+      ctx.arc(splash.x, splash.y, splash.size * splash.life, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    
+    puddles.forEach((puddle) => {
+      puddle.phase += 0.01;
+      const gradient = ctx.createRadialGradient(puddle.x, puddle.y, 0, puddle.x, puddle.y, puddle.size);
+      gradient.addColorStop(0, `rgba(100, 150, 200, ${puddle.life * 0.4})`);
+      gradient.addColorStop(1, `rgba(80, 120, 180, ${puddle.life * 0.2})`);
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.ellipse(puddle.x, puddle.y, puddle.size, puddle.size * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      for (let i = 0; i < puddle.ripples; i++) {
+        const rippleRadius = (puddle.phase + i * 0.5) % 2;
+        ctx.strokeStyle = `rgba(150, 180, 255, ${puddle.life * (1 - rippleRadius / 2) * 0.3})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.ellipse(puddle.x, puddle.y, puddle.size * rippleRadius, puddle.size * rippleRadius * 0.3, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    });
+  }
+
+  function drawSnow() {
+    if (weather !== 'snowy' && getSeasonType() !== 'winter') return;
+    
+    snowflakes.forEach((flake) => {
+      ctx.save();
+      ctx.translate(flake.x, flake.y);
+      ctx.rotate(flake.rotation);
+      ctx.fillStyle = `rgba(255, 255, 255, 0.8)`;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const angle = (Math.PI / 3) * i;
+        const x = Math.cos(angle) * flake.size;
+        const y = Math.sin(angle) * flake.size;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    });
+  }
+
+  function drawSnowman(time) {
+    if (!snowman || snowman.buildProgress < 0.1) return;
+    
+    const progress = easeInOutCubic(snowman.buildProgress);
+    const baseY = snowman.y;
+    
+    ctx.save();
+    ctx.translate(snowman.x, baseY);
+    
+    const sway = Math.sin(time * 0.0005 + snowman.phase) * 2;
+    
+    if (progress > 0.3) {
+      const bottomSize = 25 * progress;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.beginPath();
+      ctx.arc(sway, -bottomSize * 0.5, bottomSize, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = 'rgba(200, 200, 200, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(sway, -bottomSize * 0.5, bottomSize, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    
+    if (progress > 0.6) {
+      const middleSize = 18 * progress;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.beginPath();
+      ctx.arc(sway, -45, middleSize, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = 'rgba(200, 200, 200, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(sway, -45, middleSize, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    
+    if (progress > 0.85) {
+      const headSize = 12 * progress;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.beginPath();
+      ctx.arc(sway, -70, headSize, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = 'rgba(200, 200, 200, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(sway, -70, headSize, 0, Math.PI * 2);
+      ctx.stroke();
+      
+      ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+      ctx.beginPath();
+      ctx.arc(sway - 3, -72, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(sway + 3, -72, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.fillStyle = 'rgba(255, 150, 0, 1)';
+      ctx.beginPath();
+      ctx.moveTo(sway, -68);
+      ctx.lineTo(sway - 2, -66);
+      ctx.lineTo(sway + 2, -66);
+      ctx.closePath();
+      ctx.fill();
+    }
+    
+    ctx.restore();
   }
   
   function drawBirdOnTree(time) {
@@ -941,28 +1577,34 @@
     const sway = Math.sin(time * 0.001 + birdOnTree.phase) * 2;
     ctx.save();
     ctx.translate(birdOnTree.x + sway, birdOnTree.y);
-    ctx.fillStyle = 'rgba(100, 80, 60, 0.9)';
+    
+    const birdColor = birdOnTree.branch?.seed ? (seededRandom(birdOnTree.branch.seed) > 0.5 ? 'brown' : 'gray') : 'brown';
+    
+    if (birdColor === 'brown') {
+      ctx.fillStyle = 'rgba(139, 90, 43, 0.95)';
+    } else {
+      ctx.fillStyle = 'rgba(128, 128, 128, 0.95)';
+    }
+    
     ctx.beginPath();
-    ctx.ellipse(0, 0, 6, 4, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, 8, 6, 0, 0, Math.PI * 2);
     ctx.fill();
     
-    // Клюв
-    ctx.fillStyle = 'rgba(255, 150, 0, 0.9)';
+    ctx.fillStyle = 'rgba(255, 150, 0, 0.95)';
     ctx.beginPath();
-    ctx.moveTo(4, 0);
-    ctx.lineTo(8, -2);
-    ctx.lineTo(8, 2);
+    ctx.moveTo(5, 0);
+    ctx.lineTo(10, -3);
+    ctx.lineTo(10, 3);
     ctx.closePath();
     ctx.fill();
     
-    // Глаз
     ctx.fillStyle = 'rgba(255, 255, 255, 1)';
     ctx.beginPath();
-    ctx.arc(-2, -1, 1.5, 0, Math.PI * 2);
+    ctx.arc(-3, -2, 2, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = 'rgba(0, 0, 0, 1)';
     ctx.beginPath();
-    ctx.arc(-2, -1, 0.8, 0, Math.PI * 2);
+    ctx.arc(-3, -2, 1.2, 0, Math.PI * 2);
     ctx.fill();
     
     ctx.restore();
@@ -974,13 +1616,11 @@
       ctx.translate(insect.x, insect.y);
       
       if (insect.type === 'bee') {
-        // Пчела
         ctx.fillStyle = `rgba(255, 200, 0, ${insect.life * 0.8})`;
         ctx.beginPath();
         ctx.ellipse(0, 0, insect.size * 1.5, insect.size, 0, 0, Math.PI * 2);
         ctx.fill();
         
-        // Полоски
         ctx.strokeStyle = `rgba(0, 0, 0, ${insect.life * 0.6})`;
         ctx.lineWidth = 0.5;
         ctx.beginPath();
@@ -988,14 +1628,12 @@
         ctx.lineTo(insect.size, 0);
         ctx.stroke();
       } else {
-        // Муха
         ctx.fillStyle = `rgba(50, 50, 50, ${insect.life * 0.7})`;
         ctx.beginPath();
         ctx.ellipse(0, 0, insect.size, insect.size * 0.6, 0, 0, Math.PI * 2);
         ctx.fill();
       }
       
-      // Крылья
       const wingOffset = Math.sin(insect.phase * 5) * 2;
       ctx.fillStyle = `rgba(200, 200, 255, ${insect.life * 0.3})`;
       ctx.beginPath();
@@ -1019,9 +1657,6 @@
       ctx.lineCap = 'round';
       
       ctx.beginPath();
-      let prevX = worm.x;
-      let prevY = worm.y;
-      
       for (let i = 0; i <= segments; i++) {
         const t = i / segments;
         const offsetX = Math.sin(worm.phase + t * Math.PI * 2) * 1.5;
@@ -1034,14 +1669,10 @@
         } else {
           ctx.lineTo(x, y);
         }
-        
-        prevX = x;
-        prevY = y;
       }
       
       ctx.stroke();
       
-      // Голова червяка
       ctx.fillStyle = `rgba(160, 100, 50, ${worm.life * 0.9})`;
       ctx.beginPath();
       ctx.arc(worm.x + (segments * segmentLength * worm.direction), worm.y, 2, 0, Math.PI * 2);
@@ -1050,8 +1681,23 @@
   }
 
   function drawMountains(time) {
+    const seasonType = getSeasonType();
+    const isWinter = seasonType === 'winter';
+    
     mountains.forEach((layer, index) => {
-      ctx.fillStyle = layer.color;
+      let color = layer.color;
+      if (isWinter) {
+        const parts = color.match(/\d+/g);
+        if (parts) {
+          const r = Math.min(255, parseInt(parts[0]) + 40);
+          const g = Math.min(255, parseInt(parts[1]) + 40);
+          const b = Math.min(255, parseInt(parts[2]) + 50);
+          const a = parts[3] || '0.5';
+          color = `rgba(${r}, ${g}, ${b}, ${a})`;
+        }
+      }
+      
+      ctx.fillStyle = color;
       ctx.beginPath();
       ctx.moveTo(0, height);
       layer.points.forEach((point, idx) => {
@@ -1065,18 +1711,23 @@
   }
 
   function drawCloudsLayer() {
-    const weatherMultiplier = weather === 'rainy' ? 1.5 : weather === 'cloudy' ? 1.2 : 0.8;
+    const weatherMultiplier = weather === 'rainy' || weather === 'stormy' ? 1.5 : weather === 'cloudy' ? 1.2 : weather === 'snowy' ? 1.3 : 0.8;
     
     clouds.forEach((cloud) => {
       const opacity = cloud.opacity * weatherMultiplier;
-      const color = weather === 'rainy' ? 'rgba(150, 170, 200' : 'rgba(210, 230, 255';
+      let color = 'rgba(210, 230, 255';
+      if (weather === 'rainy' || weather === 'stormy') {
+        color = 'rgba(150, 170, 200';
+      } else if (weather === 'snowy' || getSeasonType() === 'winter') {
+        color = 'rgba(200, 210, 230';
+      }
+      
       ctx.fillStyle = `${color}, ${Math.min(1, opacity)})`;
       ctx.beginPath();
       ctx.ellipse(cloud.x, cloud.y, 120 * cloud.scale, 40 * cloud.scale, 0, 0, Math.PI * 2);
       ctx.fill();
       
-      // Дополнительные слои для более реалистичных облаков
-      if (weather === 'cloudy' || weather === 'rainy') {
+      if (weather === 'cloudy' || weather === 'rainy' || weather === 'stormy' || weather === 'snowy') {
         ctx.fillStyle = `${color}, ${Math.min(0.6, opacity * 0.7)})`;
         ctx.beginPath();
         ctx.ellipse(cloud.x - 40 * cloud.scale, cloud.y, 80 * cloud.scale, 30 * cloud.scale, 0, 0, Math.PI * 2);
@@ -1089,6 +1740,8 @@
   }
 
   function drawFirefliesLayer() {
+    if (getSeasonType() === 'winter') return;
+    
     floatingLights.forEach((light) => {
       const x = light.x * width;
       const y = light.y * height;
@@ -1104,23 +1757,48 @@
       ctx.save();
       ctx.translate(bird.x, bird.y + Math.sin(time * 0.001 + bird.phase) * bird.amplitude);
       ctx.scale(bird.direction, 1);
-      ctx.strokeStyle = `rgba(255, 255, 255, ${0.25 + bird.layer * 0.25})`;
-      ctx.lineWidth = 1.6;
+      
+      const opacity = 0.6 + bird.layer * 0.3;
+      const birdColor = bird.color === 'brown' ? 'rgba(139, 90, 43' : 'rgba(128, 128, 128';
+      
+      ctx.strokeStyle = `${birdColor}, ${opacity})`;
+      ctx.fillStyle = `${birdColor}, ${opacity * 0.8})`;
+      ctx.lineWidth = 2;
+      
       ctx.beginPath();
-      ctx.moveTo(-8, 0);
-      ctx.quadraticCurveTo(0, -4, 8, 0);
+      ctx.moveTo(-10 * bird.size, 0);
+      ctx.quadraticCurveTo(0, -6 * bird.size, 10 * bird.size, 0);
       ctx.stroke();
+      ctx.fill();
+      
+      ctx.beginPath();
+      ctx.arc(-6 * bird.size, -2 * bird.size, 2 * bird.size, 0, Math.PI * 2);
+      ctx.fill();
+      
       ctx.restore();
     });
   }
 
   function drawGround() {
+    const seasonType = getSeasonType();
+    const isWinter = seasonType === 'winter';
+    
     ctx.save();
     ctx.translate(width / 2, height - 35);
-    const grd = ctx.createRadialGradient(0, 0, 40, 0, 0, Math.max(width, 500));
-    grd.addColorStop(0, 'rgba(34, 70, 38, 0.8)');
-    grd.addColorStop(0.6, 'rgba(14, 32, 24, 0.95)');
-    grd.addColorStop(1, 'rgba(4, 8, 12, 1)');
+    
+    let grd;
+    if (isWinter) {
+      grd = ctx.createRadialGradient(0, 0, 40, 0, 0, Math.max(width, 500));
+      grd.addColorStop(0, 'rgba(240, 248, 255, 0.9)');
+      grd.addColorStop(0.6, 'rgba(220, 230, 240, 0.95)');
+      grd.addColorStop(1, 'rgba(200, 210, 220, 1)');
+    } else {
+      grd = ctx.createRadialGradient(0, 0, 40, 0, 0, Math.max(width, 500));
+      grd.addColorStop(0, 'rgba(34, 70, 38, 0.8)');
+      grd.addColorStop(0.6, 'rgba(14, 32, 24, 0.95)');
+      grd.addColorStop(1, 'rgba(4, 8, 12, 1)');
+    }
+    
     ctx.fillStyle = grd;
     ctx.beginPath();
     ctx.ellipse(0, 0, width * 0.55, 190, 0, 0, Math.PI, true);
@@ -1149,8 +1827,15 @@
       (0.03 + (CONFIG.maxDepth - branch.depth) * 0.005) *
       (0.35 + growth * 0.65);
     const windGust = wind * (0.25 + branch.depth * 0.04);
-    const angle = parentAngle + branch.angle + sway + windGust;
+    let angle = parentAngle + branch.angle + sway + windGust;
+    
+    if (branch.pruneOffset) {
+      angle += branch.pruneOffset;
+    }
+    
     const length = branch.length * eased;
+    const seasonType = getSeasonType();
+    const isWinter = seasonType === 'winter';
     const dryness = lifeStage === 'decline' || lifeStage === 'seedFall' ? 0.72 : 1;
     const endX = startX + Math.sin(angle) * length;
     const endY = startY - Math.cos(angle) * length;
@@ -1158,6 +1843,8 @@
     if (branch.pruned) {
       if (time > branch.regrowAt) {
         branch.pruned = false;
+        branch.pruneLocation = null;
+        branch.pruneOffset = null;
       } else {
         const stubLength = Math.min(branch.pruneLength, length * 0.6);
         const stubX = startX + Math.sin(angle) * stubLength;
@@ -1176,9 +1863,8 @@
       }
     }
 
-    // Реалистичный рост: рисуем ветку сегмент за сегментом
     if (!branch.growthSegments) {
-      branch.growthSegments = 8 + Math.floor(branch.length / 15);
+      branch.growthSegments = 12 + Math.floor(branch.length / 12);
       branch.segmentProgress = 0;
     }
     
@@ -1186,14 +1872,22 @@
     const segmentsToDraw = Math.floor(branch.growthSegments * eased);
     const partialSegment = (branch.growthSegments * eased) - segmentsToDraw;
     
-    ctx.strokeStyle = `rgba(${(branch.color.r * dryness).toFixed(0)}, ${(branch.color.g * dryness).toFixed(0)}, ${(branch.color.b * dryness).toFixed(0)}, ${0.82 - branch.depth * 0.04})`;
+    let branchColor = branch.color;
+    if (isWinter) {
+      branchColor = {
+        r: Math.min(255, branchColor.r + 30),
+        g: Math.min(255, branchColor.g + 30),
+        b: Math.min(255, branchColor.b + 40)
+      };
+    }
+    
+    ctx.strokeStyle = `rgba(${(branchColor.r * dryness).toFixed(0)}, ${(branchColor.g * dryness).toFixed(0)}, ${(branchColor.b * dryness).toFixed(0)}, ${0.82 - branch.depth * 0.04})`;
     ctx.lineWidth = branch.baseWidth * (0.8 + 0.2 * (1 - progress));
     
     let currentX = startX;
     let currentY = startY;
     let currentAngle = angle;
     
-    // Рисуем полные сегменты
     for (let i = 0; i < segmentsToDraw; i++) {
       const nextX = currentX + Math.sin(currentAngle) * segmentLength;
       const nextY = currentY - Math.cos(currentAngle) * segmentLength;
@@ -1203,11 +1897,22 @@
       ctx.lineTo(nextX, nextY);
       ctx.stroke();
       
+      if (isWinter && i % 3 === 0) {
+        const frostAmount = Math.sin(time * 0.0005 + i) * 0.3 + 0.7;
+        ctx.strokeStyle = `rgba(220, 240, 255, ${frostAmount * 0.4})`;
+        ctx.lineWidth = branch.baseWidth * 0.3;
+        ctx.beginPath();
+        ctx.moveTo(currentX, currentY);
+        ctx.lineTo(nextX, nextY);
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(${(branchColor.r * dryness).toFixed(0)}, ${(branchColor.g * dryness).toFixed(0)}, ${(branchColor.b * dryness).toFixed(0)}, ${0.82 - branch.depth * 0.04})`;
+        ctx.lineWidth = branch.baseWidth * (0.8 + 0.2 * (1 - progress));
+      }
+      
       currentX = nextX;
       currentY = nextY;
     }
     
-    // Рисуем частичный сегмент (растущий кончик)
     if (partialSegment > 0 && segmentsToDraw < branch.growthSegments) {
       const tipX = currentX + Math.sin(currentAngle) * segmentLength * partialSegment;
       const tipY = currentY - Math.cos(currentAngle) * segmentLength * partialSegment;
@@ -1217,7 +1922,6 @@
       ctx.lineTo(tipX, tipY);
       ctx.stroke();
       
-      // Рисуем растущий кончик
       ctx.fillStyle = `rgba(182, 255, 222, ${0.6 * partialSegment})`;
       ctx.beginPath();
       ctx.arc(tipX, tipY, 2 + branch.baseWidth * 0.3, 0, Math.PI * 2);
@@ -1237,16 +1941,30 @@
         drawFruit(finalEndX, finalEndY, branch, angle, time);
       }
     } else if (progress > 0.55) {
-      branch.children.forEach((child) => drawBranch(child, time, angle, finalEndX, finalEndY));
+      branch.children.forEach((child) => {
+        if (!child.pruneLocation || 
+            Math.abs(child.pruneLocation.x - finalEndX) > 15 || 
+            Math.abs(child.pruneLocation.y - finalEndY) > 15) {
+          drawBranch(child, time, angle, finalEndX, finalEndY);
+        }
+      });
     } else if (progress > 0.1) {
       drawBud(finalEndX, finalEndY, branch);
     }
   }
 
   function drawLeaf(x, y, angle, branch, time) {
+    const seasonType = getSeasonType();
     const seasonalShift = Math.sin(season + branch.seed * 3);
     const declineShift = lifeStage === 'decline' || lifeStage === 'seedFall' ? 35 : 0;
-    const hue = clamp(110 + seasonalShift * 25 - declineShift, 35, 140);
+    let hue = clamp(110 + seasonalShift * 25 - declineShift, 35, 140);
+    
+    if (seasonType === 'autumn') {
+      hue = clamp(20 + seasonalShift * 30, 15, 50);
+    } else if (seasonType === 'winter') {
+      return;
+    }
+    
     const lightness = 45 + Math.cos(season * 0.5 + branch.seed * 11) * 12;
     const length = 11 + (1 - branch.depth / CONFIG.maxDepth) * 6;
     const widthLeaf = 4 + (1 - branch.depth / CONFIG.maxDepth) * 2;
@@ -1368,6 +2086,9 @@
     if (chosen && chosenPoint) {
       chosen.branch.pruned = true;
       chosen.branch.regrowAt = now + 18000 + Math.random() * 14000;
+      chosen.branch.pruneLocation = { x: chosenPoint.x, y: chosenPoint.y };
+      chosen.branch.pruneOffset = (Math.random() - 0.5) * 0.3;
+      prunedLocations.set(chosen.branch.id, { x: chosenPoint.x, y: chosenPoint.y, time: now });
       sawState.lastCut = now;
       spawnSawdust(chosenPoint);
       hintEl.textContent = 'Ветка убрана — жди, пока вырастет свежая почка.';
@@ -1388,6 +2109,234 @@
     sawTrail = sawTrail
       .map((point) => ({ ...point, life: point.life - delta * 0.0028 }))
       .filter((point) => point.life > 0);
+  }
+
+  function drawButterflies(time) {
+    butterflies.forEach((butterfly) => {
+      ctx.save();
+      ctx.translate(butterfly.x, butterfly.y);
+      
+      const wingOpen = Math.abs(Math.sin(butterfly.wingPhase));
+      const colors = {
+        orange: 'rgba(255, 165, 0',
+        yellow: 'rgba(255, 255, 0',
+        blue: 'rgba(100, 150, 255',
+        purple: 'rgba(200, 100, 255',
+        pink: 'rgba(255, 150, 200'
+      };
+      
+      const color = colors[butterfly.color] || colors.orange;
+      
+      ctx.fillStyle = `${color}, ${butterfly.life * 0.8})`;
+      ctx.beginPath();
+      ctx.ellipse(-butterfly.size * 0.5, 0, butterfly.size * wingOpen, butterfly.size * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(butterfly.size * 0.5, 0, butterfly.size * wingOpen, butterfly.size * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.fillStyle = `${color}, ${butterfly.life * 0.9})`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, butterfly.size * 0.3, butterfly.size * 0.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.restore();
+    });
+  }
+
+  function drawSquirrels(time) {
+    squirrels.forEach((squirrel) => {
+      ctx.save();
+      ctx.translate(squirrel.x, squirrel.y);
+      ctx.scale(squirrel.direction, 1);
+      
+      ctx.fillStyle = `rgba(139, 90, 43, ${squirrel.life * 0.9})`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 8, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.beginPath();
+      ctx.ellipse(-6, 0, 4, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.fillStyle = `rgba(160, 120, 80, ${squirrel.life * 0.8})`;
+      ctx.beginPath();
+      ctx.arc(8, Math.sin(squirrel.tailPhase) * 2, 6, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.fillStyle = `rgba(139, 90, 43, ${squirrel.life * 0.9})`;
+      ctx.beginPath();
+      ctx.arc(-8, -2, 2, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.restore();
+    });
+  }
+
+  function drawRabbits(time) {
+    rabbits.forEach((rabbit) => {
+      ctx.save();
+      ctx.translate(rabbit.x, rabbit.y - rabbit.hopHeight);
+      ctx.scale(rabbit.direction, 1);
+      
+      ctx.fillStyle = `rgba(200, 200, 200, ${rabbit.life * 0.9})`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 6, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.beginPath();
+      ctx.ellipse(-5, -3, 3, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.beginPath();
+      ctx.ellipse(-6, -1, 2, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(6, -1, 2, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.fillStyle = `rgba(255, 255, 255, ${rabbit.life * 0.9})`;
+      ctx.beginPath();
+      ctx.ellipse(-5, -3, 1.5, 1, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.restore();
+    });
+  }
+
+  function drawDewdrops(time) {
+    dewdrops.forEach((dewdrop) => {
+      const twinkle = 0.7 + Math.sin(time * 0.002 + dewdrop.phase) * 0.3;
+      ctx.fillStyle = `rgba(200, 230, 255, ${dewdrop.life * twinkle * 0.8})`;
+      ctx.beginPath();
+      ctx.arc(dewdrop.x, dewdrop.y, dewdrop.size, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.fillStyle = `rgba(255, 255, 255, ${dewdrop.life * twinkle * 0.9})`;
+      ctx.beginPath();
+      ctx.arc(dewdrop.x - dewdrop.size * 0.3, dewdrop.y - dewdrop.size * 0.3, dewdrop.size * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  function drawMushrooms(time) {
+    mushrooms.forEach((mushroom) => {
+      if (mushroom.growth < 0.1) return;
+      
+      const progress = easeOutCubic(mushroom.growth);
+      const capSize = mushroom.size * progress;
+      const stemHeight = capSize * 1.2;
+      
+      ctx.save();
+      ctx.translate(mushroom.x, mushroom.y);
+      
+      if (mushroom.type === 'red') {
+        ctx.fillStyle = `rgba(220, 50, 50, ${mushroom.life * 0.9})`;
+      } else {
+        ctx.fillStyle = `rgba(139, 90, 43, ${mushroom.life * 0.9})`;
+      }
+      
+      ctx.beginPath();
+      ctx.arc(0, -stemHeight, capSize, 0, Math.PI * 2);
+      ctx.fill();
+      
+      if (mushroom.type === 'red') {
+        ctx.fillStyle = `rgba(255, 255, 255, ${mushroom.life * 0.8})`;
+        for (let i = 0; i < 5; i++) {
+          const angle = (Math.PI * 2 / 5) * i;
+          ctx.beginPath();
+          ctx.arc(Math.cos(angle) * capSize * 0.6, -stemHeight + Math.sin(angle) * capSize * 0.6, capSize * 0.15, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      
+      ctx.fillStyle = `rgba(200, 180, 160, ${mushroom.life * 0.9})`;
+      ctx.beginPath();
+      ctx.ellipse(0, -stemHeight * 0.3, capSize * 0.3, stemHeight, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.restore();
+    });
+  }
+
+  function drawFlowers(time) {
+    flowers.forEach((flower) => {
+      if (flower.growth < 0.1) return;
+      
+      const progress = easeOutCubic(flower.growth);
+      const size = flower.size * progress;
+      
+      ctx.save();
+      ctx.translate(flower.x, flower.y);
+      ctx.rotate(flower.phase);
+      
+      const colors = {
+        red: 'rgba(255, 50, 50',
+        yellow: 'rgba(255, 255, 0',
+        blue: 'rgba(100, 150, 255',
+        purple: 'rgba(200, 100, 255',
+        pink: 'rgba(255, 150, 200',
+        white: 'rgba(255, 255, 255'
+      };
+      
+      const color = colors[flower.color] || colors.red;
+      
+      for (let i = 0; i < flower.petals; i++) {
+        const angle = (Math.PI * 2 / flower.petals) * i;
+        ctx.save();
+        ctx.rotate(angle);
+        ctx.fillStyle = `${color}, ${flower.life * 0.8})`;
+        ctx.beginPath();
+        ctx.ellipse(0, -size * 0.8, size * 0.4, size * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      
+      ctx.fillStyle = `rgba(255, 200, 0, ${flower.life * 0.9})`;
+      ctx.beginPath();
+      ctx.arc(0, 0, size * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.restore();
+    });
+  }
+
+  function drawFallingLeaves(time) {
+    fallingLeaves.forEach((leaf) => {
+      ctx.save();
+      ctx.translate(leaf.x, leaf.y);
+      ctx.rotate(leaf.rotation);
+      
+      const color = leaf.color === 'yellow' ? 'rgba(255, 220, 0' : 'rgba(255, 165, 0';
+      ctx.fillStyle = `${color}, ${leaf.life * 0.8})`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, leaf.size * 0.6, leaf.size, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = `rgba(200, 150, 0, ${leaf.life * 0.6})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, -leaf.size);
+      ctx.lineTo(0, leaf.size);
+      ctx.stroke();
+      
+      ctx.restore();
+    });
+  }
+
+  function drawFallenFruits(time) {
+    fallenFruits.forEach((fruit) => {
+      const hue = clamp(28 + fruit.ripeness * 60, 25, 90);
+      ctx.fillStyle = `hsla(${hue}, 75%, ${55 - fruit.ripeness * 8}%, ${fruit.life * 0.8})`;
+      ctx.beginPath();
+      ctx.ellipse(fruit.x, fruit.y, fruit.size * 0.8, fruit.size, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.fillStyle = `rgba(100, 50, 0, ${fruit.life * 0.7})`;
+      ctx.beginPath();
+      ctx.ellipse(fruit.x, fruit.y - fruit.size * 0.6, fruit.size * 0.2, fruit.size * 0.3, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
   }
 
   function drawSawOverlay() {
@@ -1472,13 +2421,520 @@
 
   canvas.addEventListener('contextmenu', (evt) => evt.preventDefault());
 
+  function updateFrostParticles(delta) {
+    const seasonType = getSeasonType();
+    if (seasonType === 'winter' && weather === 'snowy') {
+      if (frostParticles.length < 50 && Math.random() < 0.001) {
+        if (branchSegments.length > 0) {
+          const segment = branchSegments[Math.floor(Math.random() * branchSegments.length)];
+          const t = Math.random();
+          frostParticles.push({
+            x: segment.x1 + (segment.x2 - segment.x1) * t,
+            y: segment.y1 + (segment.y2 - segment.y1) * t,
+            size: 1 + Math.random() * 2,
+            phase: Math.random() * Math.PI * 2,
+            life: 1
+          });
+        }
+      }
+    }
+    
+    frostParticles = frostParticles.filter((particle) => {
+      particle.phase += delta * 0.001;
+      particle.life -= delta * 0.00001;
+      if (weather !== 'snowy' && getSeasonType() !== 'winter') {
+        particle.life -= delta * 0.0001;
+      }
+      return particle.life > 0;
+    });
+  }
+
+  function drawFrostParticles(time) {
+    const seasonType = getSeasonType();
+    if (seasonType !== 'winter') return;
+    
+    frostParticles.forEach((particle) => {
+      const twinkle = 0.6 + Math.sin(time * 0.003 + particle.phase) * 0.4;
+      ctx.fillStyle = `rgba(220, 240, 255, ${particle.life * twinkle * 0.7})`;
+      ctx.beginPath();
+      ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = `rgba(255, 255, 255, ${particle.life * twinkle * 0.5})`;
+      ctx.lineWidth = 0.5;
+      ctx.beginPath();
+      ctx.arc(particle.x, particle.y, particle.size * 1.2, 0, Math.PI * 2);
+      ctx.stroke();
+    });
+  }
+
+  function updateShadows(delta) {
+    shadows = shadows.filter((shadow) => {
+      shadow.life -= delta * 0.00001;
+      return shadow.life > 0;
+    });
+    
+    if (weather === 'sunny' && Math.random() < 0.0005) {
+      if (branchSegments.length > 0) {
+        const segment = branchSegments[Math.floor(Math.random() * branchSegments.length)];
+        const t = Math.random();
+        shadows.push({
+          x: segment.x1 + (segment.x2 - segment.x1) * t,
+          y: height - 40,
+          size: 8 + Math.random() * 12,
+          opacity: 0.2 + Math.random() * 0.2,
+          life: 1
+        });
+      }
+    }
+  }
+
+  function drawShadows(time) {
+    if (weather !== 'sunny') return;
+    
+    shadows.forEach((shadow) => {
+      ctx.fillStyle = `rgba(0, 0, 0, ${shadow.life * shadow.opacity * 0.3})`;
+      ctx.beginPath();
+      ctx.ellipse(shadow.x, shadow.y, shadow.size, shadow.size * 0.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
+  function enhanceRainSystem() {
+    if (weather === 'rainy' || weather === 'stormy') {
+      rainDrops.forEach((drop) => {
+        drop.turbulence = drop.turbulence || (Math.random() - 0.5) * 0.05;
+        drop.turbulence += (Math.random() - 0.5) * 0.001;
+        drop.turbulence = clamp(drop.turbulence, -0.1, 0.1);
+        drop.x += drop.turbulence * deltaMs * 0.1;
+      });
+    }
+  }
+
+  function enhanceCloudSystem() {
+    clouds.forEach((cloud) => {
+      cloud.opacityVariation = cloud.opacityVariation || 0;
+      cloud.opacityVariation += (Math.random() - 0.5) * 0.01;
+      cloud.opacityVariation = clamp(cloud.opacityVariation, -0.1, 0.1);
+    });
+  }
+
+  function enhanceBirdBehavior() {
+    birds.forEach((bird) => {
+      if (Math.random() < 0.0001) {
+        bird.amplitude = 6 + Math.random() * 10;
+        bird.speed = 35 + Math.random() * 45;
+      }
+    });
+  }
+
+  function enhanceTreeGrowthVisuals() {
+    if (!tree) return;
+    
+    function traverseBranch(branch) {
+      if (branch.growthSegments) {
+        branch.segmentProgress = branch.segmentProgress || 0;
+        branch.segmentProgress += deltaMs * 0.00001;
+      }
+      branch.children.forEach(traverseBranch);
+    }
+    
+    traverseBranch(tree);
+  }
+
+  function addSeasonalEffects() {
+    const seasonType = getSeasonType();
+    
+    if (seasonType === 'spring') {
+      if (Math.random() < 0.0001 && flowers.length < 15) {
+        flowers.push(spawnFlower());
+      }
+    } else if (seasonType === 'summer') {
+      if (Math.random() < 0.0001 && butterflies.length < 8) {
+        butterflies.push(spawnButterfly());
+      }
+    } else if (seasonType === 'autumn') {
+      if (Math.random() < 0.0002 && mushrooms.length < 10) {
+        mushrooms.push(spawnMushroom());
+      }
+    }
+  }
+
+  function enhanceWeatherTransitions() {
+    if (weatherTransition > 0) {
+      const transitionProgress = 1 - weatherTransition;
+      
+      if (weather === 'stormy' && transitionProgress > 0.5) {
+        skyDarkness = transitionProgress * 0.8;
+      } else if (weather === 'rainy' && transitionProgress > 0.3) {
+        if (rainGain) {
+          rainGain.gain.value = transitionProgress * 0.2;
+        }
+      }
+    }
+  }
+
+  function addParticleEffects() {
+    if (weather === 'stormy' && Math.random() < 0.01) {
+      for (let i = 0; i < 3; i++) {
+        sawdust.push({
+          x: Math.random() * width,
+          y: height * 0.2,
+          vx: (Math.random() - 0.5) * 0.5,
+          vy: 0.2 + Math.random() * 0.3,
+          life: 0.5 + Math.random() * 0.5
+        });
+      }
+    }
+  }
+
+  function enhanceLightningEffects() {
+    if (lightning) {
+      const branches = Math.floor(Math.random() * 3) + 2;
+      for (let i = 0; i < branches; i++) {
+        const offsetX = (Math.random() - 0.5) * 50;
+        const offsetY = Math.random() * 30;
+        ctx.strokeStyle = `rgba(255, 255, 255, ${lightning.intensity * lightning.life * 0.5})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(lightning.x, lightning.y);
+        ctx.lineTo(lightning.x + offsetX, lightning.y + offsetY);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function addWindEffects() {
+    if (Math.abs(wind) > 0.2) {
+      fallingLeaves.forEach((leaf) => {
+        leaf.vx += wind * 0.01;
+      });
+      
+      snowflakes.forEach((flake) => {
+        flake.drift += wind * 0.05;
+      });
+    }
+  }
+
+  function enhanceSnowmanDetails() {
+    if (snowman && snowman.buildProgress > 0.9) {
+      const time = performance.now();
+      if (Math.random() < 0.0001) {
+        snowman.hasCarrot = true;
+        snowman.hasHat = Math.random() > 0.5;
+      }
+    }
+  }
+
+  function drawEnhancedSnowman(time) {
+    if (!snowman || snowman.buildProgress < 0.1) return;
+    
+    const progress = easeInOutCubic(snowman.buildProgress);
+    const baseY = snowman.y;
+    
+    ctx.save();
+    ctx.translate(snowman.x, baseY);
+    
+    const sway = Math.sin(time * 0.0005 + snowman.phase) * 2;
+    
+    if (progress > 0.3) {
+      const bottomSize = 25 * progress;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.beginPath();
+      ctx.arc(sway, -bottomSize * 0.5, bottomSize, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = 'rgba(200, 200, 200, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(sway, -bottomSize * 0.5, bottomSize, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    
+    if (progress > 0.6) {
+      const middleSize = 18 * progress;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.beginPath();
+      ctx.arc(sway, -45, middleSize, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = 'rgba(200, 200, 200, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(sway, -45, middleSize, 0, Math.PI * 2);
+      ctx.stroke();
+      
+      if (progress > 0.7) {
+        for (let i = 0; i < 3; i++) {
+          ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+          ctx.beginPath();
+          ctx.arc(sway - 5 + i * 5, -45, 1.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+    
+    if (progress > 0.85) {
+      const headSize = 12 * progress;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.beginPath();
+      ctx.arc(sway, -70, headSize, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = 'rgba(200, 200, 200, 0.3)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.arc(sway, -70, headSize, 0, Math.PI * 2);
+      ctx.stroke();
+      
+      ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+      ctx.beginPath();
+      ctx.arc(sway - 3, -72, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(sway + 3, -72, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      
+      if (snowman.hasCarrot) {
+        ctx.fillStyle = 'rgba(255, 150, 0, 1)';
+        ctx.beginPath();
+        ctx.moveTo(sway, -68);
+        ctx.lineTo(sway - 2, -66);
+        ctx.lineTo(sway + 2, -66);
+        ctx.closePath();
+        ctx.fill();
+      }
+      
+      if (snowman.hasHat && progress > 0.95) {
+        ctx.fillStyle = 'rgba(50, 50, 50, 1)';
+        ctx.beginPath();
+        ctx.ellipse(sway, -78, 8, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.rect(sway - 6, -78, 12, 4);
+        ctx.fill();
+      }
+    }
+    
+    ctx.restore();
+  }
+
+  function enhanceBranchDetails() {
+    branchSegments.forEach((segment) => {
+      if (!segment.branch.detailAdded && Math.random() < 0.01) {
+        segment.branch.detailAdded = true;
+        segment.branch.barkTexture = Math.random();
+      }
+    });
+  }
+
+  function addAtmosphericEffects() {
+    const seasonType = getSeasonType();
+    
+    if (seasonType === 'spring' && weather === 'sunny') {
+      if (Math.random() < 0.0001) {
+        for (let i = 0; i < 2; i++) {
+          floatingLights.push({
+            x: Math.random(),
+            y: Math.random(),
+            scale: 0.6 + Math.random() * 1.4,
+            speed: 0.2 + Math.random() * 0.6,
+            hue: 80 + Math.random() * 40,
+            seed: Math.random() * 10
+          });
+        }
+      }
+    }
+  }
+
+  function enhanceWateringEffect() {
+    if (hydration > 0.5) {
+      dewdrops.forEach((dewdrop) => {
+        dewdrop.size = Math.min(dewdrop.size * 1.01, dewdrop.size * 1.2);
+      });
+    }
+  }
+
+  function addInteractiveElements() {
+    if (birdOnTree && Math.random() < 0.0001) {
+      birdOnTree.animationPhase = (birdOnTree.animationPhase || 0) + 0.1;
+    }
+  }
+
+  function enhanceSeasonalColors() {
+    const seasonType = getSeasonType();
+    const time = performance.now();
+    
+    if (seasonType === 'autumn') {
+      mountains.forEach((mountain) => {
+        mountain.autumnTint = mountain.autumnTint || 0;
+        mountain.autumnTint = Math.min(1, mountain.autumnTint + deltaMs * 0.00001);
+      });
+    }
+  }
+
+  function addDynamicLighting() {
+    if (weather === 'sunny') {
+      const sunAngle = (performance.now() * 0.0001) % (Math.PI * 2);
+      const lightIntensity = Math.max(0.3, Math.sin(sunAngle) * 0.5 + 0.5);
+      sunIntensity = lerp(sunIntensity, lightIntensity, deltaMs * 0.0001);
+    }
+  }
+
+  function enhanceParticleSystems() {
+    if (weather === 'rainy' || weather === 'stormy') {
+      rainSplashes.forEach((splash) => {
+        splash.size += deltaMs * 0.0001;
+      });
+    }
+    
+    if (getSeasonType() === 'winter') {
+      snowflakes.forEach((flake) => {
+        flake.size += (Math.random() - 0.5) * 0.01;
+        flake.size = clamp(flake.size, 1, 6);
+      });
+    }
+  }
+
+  function addLifeCycleEvents() {
+    if (lifeStage === 'mature' && Math.random() < 0.00005) {
+      const leaf = spawnFallingLeaf();
+      if (leaf) fallingLeaves.push(leaf);
+    }
+    
+    if (lifeStage === 'fruit' && Math.random() < 0.00003) {
+      const fruit = spawnFallenFruit();
+      if (fruit) fallenFruits.push(fruit);
+    }
+  }
+
+  function enhanceEcosystemInteractions() {
+    butterflies.forEach((butterfly) => {
+      flowers.forEach((flower) => {
+        const dist = Math.hypot(butterfly.x - flower.x, butterfly.y - flower.y);
+        if (dist < 30 && Math.random() < 0.01) {
+          butterfly.targetX = flower.x;
+          butterfly.targetY = flower.y;
+        }
+      });
+    });
+    
+    squirrels.forEach((squirrel) => {
+      fallenFruits.forEach((fruit) => {
+        const dist = Math.abs(squirrel.x - fruit.x);
+        if (dist < 25 && Math.random() < 0.01) {
+          squirrel.targetX = fruit.x;
+          fruit.life -= 0.1;
+        }
+      });
+    });
+  }
+
+  function addWeatherSpecificEffects() {
+    if (weather === 'stormy') {
+      windTarget = (Math.random() - 0.5) * 0.8;
+      if (Math.random() < 0.001) {
+        windTarget *= 1.5;
+      }
+    }
+    
+    if (weather === 'snowy') {
+      clouds.forEach((cloud) => {
+        cloud.opacity = Math.min(1, cloud.opacity + deltaMs * 0.00001);
+      });
+    }
+  }
+
+  function enhanceVisualDetails() {
+    const seasonType = getSeasonType();
+    
+    if (seasonType === 'winter') {
+      branchSegments.forEach((segment) => {
+        if (Math.random() < 0.0001 && !segment.branch.hasSnow) {
+          segment.branch.hasSnow = true;
+          segment.branch.snowAmount = Math.random();
+        }
+      });
+    }
+  }
+
+  function addRandomEvents() {
+    if (Math.random() < 0.00001) {
+      const eventType = ['bird', 'butterfly', 'squirrel'][Math.floor(Math.random() * 3)];
+      if (eventType === 'bird' && birds.length < 15) {
+        birds.push(spawnBird());
+      } else if (eventType === 'butterfly' && butterflies.length < 10) {
+        butterflies.push(spawnButterfly());
+      } else if (eventType === 'squirrel' && squirrels.length < 3) {
+        squirrels.push(spawnSquirrel());
+      }
+    }
+  }
+
+  function enhanceGrowthMechanics() {
+    if (growth > 0.5 && Math.random() < 0.0001) {
+      branchSegments.forEach((segment) => {
+        if (!segment.branch.growthBoost && segment.branch.depth < 3) {
+          segment.branch.growthBoost = 1 + Math.random() * 0.2;
+        }
+      });
+    }
+  }
+
+  function addSeasonalTransitions() {
+    const seasonType = getSeasonType();
+    const prevSeason = seasonType;
+    
+    if (prevSeason !== seasonType) {
+      if (seasonType === 'winter') {
+        flowers.forEach((flower) => {
+          flower.life = Math.max(0, flower.life - 0.5);
+        });
+        butterflies.forEach((butterfly) => {
+          butterfly.life = Math.max(0, butterfly.life - 0.3);
+        });
+      } else if (seasonType === 'spring') {
+        if (flowers.length < 5) {
+          for (let i = 0; i < 3; i++) {
+            flowers.push(spawnFlower());
+          }
+        }
+      }
+    }
+  }
+
+  function enhanceAudioFeedback() {
+    if (weather === 'stormy' && thunderGain) {
+      const windIntensity = Math.abs(wind);
+      thunderGain.gain.value = windIntensity * 0.1;
+    }
+  }
+
+  function addPhenomenologicalEffects() {
+    const time = performance.now();
+    
+    if (weather === 'sunny' && Math.random() < 0.0001) {
+      const sunX = width * 0.8;
+      const sunY = height * 0.15;
+      for (let i = 0; i < 5; i++) {
+        const angle = (Math.PI * 2 / 5) * i;
+        ctx.strokeStyle = `rgba(255, 255, 200, 0.3)`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(sunX, sunY);
+        ctx.lineTo(sunX + Math.cos(angle) * 60, sunY + Math.sin(angle) * 60);
+        ctx.stroke();
+      }
+    }
+  }
+
   function loop(time) {
     deltaMs = time - lastTime || 16;
     deltaMs = Math.min(Math.max(deltaMs, 8), 120);
     lastTime = time;
     fps = fps * 0.9 + Math.min(120, 1000 / deltaMs) * 0.1;
 
-    const lerpFactor = clamp(deltaMs * CONFIG.baseGrowthSpeed, 0, 0.04);
+    const lerpFactor = clamp(deltaMs * CONFIG.baseGrowthSpeed, 0, 0.03);
     growth += (targetGrowth - growth) * lerpFactor;
     growth = clamp(growth, 0, 1.08);
 
@@ -1506,12 +2962,104 @@
     updateWeather(deltaMs);
     updateInsects(deltaMs);
     updateWorms(deltaMs);
+    updateButterflies(deltaMs);
+    updateSquirrels(deltaMs);
+    updateRabbits(deltaMs);
+    updateDewdrops(deltaMs);
+    updateMushrooms(deltaMs);
+    updateFlowers(deltaMs);
+    updateFallingLeaves(deltaMs);
+    updateFallenFruits(deltaMs);
+    updateFrostParticles(deltaMs);
+    updateShadows(deltaMs);
+    enhanceRainSystem();
+    enhanceCloudSystem();
+    enhanceBirdBehavior();
+    enhanceTreeGrowthVisuals();
+    addSeasonalEffects();
+    enhanceWeatherTransitions();
+    addParticleEffects();
+    addWindEffects();
+    enhanceSnowmanDetails();
+    enhanceBranchDetails();
+    addAtmosphericEffects();
+    enhanceWateringEffect();
+    addInteractiveElements();
+    enhanceSeasonalColors();
+    addDynamicLighting();
+    enhanceParticleSystems();
+    addLifeCycleEvents();
+    enhanceEcosystemInteractions();
+    addWeatherSpecificEffects();
+    enhanceVisualDetails();
+    addRandomEvents();
+    enhanceGrowthMechanics();
+    addSeasonalTransitions();
+    enhanceAudioFeedback();
+    addAdvancedRainPhysics();
+    addAdvancedSnowPhysics();
+    addCloudFormation();
+    addBirdMigration();
+    addSeasonalAnimalBehavior();
+    addPollenEffects();
+    addFogEffects();
+    addAdvancedCloudPhysics();
+    addAdvancedWindEffects();
+    addAdvancedSeasonalTransitions();
+    addAdvancedParticleInteractions();
+    addAdvancedLightingSystem();
+    addAdvancedEcosystemDynamics();
+    addAdvancedWeatherSystem();
+    addAdvancedGrowthMechanics();
+    addAdvancedVisualEffects();
+    addAdvancedAudioSystem();
+    addAdvancedInteractionSystem();
+    addAdvancedPhenomenologicalSystem();
+    addSeasonalColorTransitions();
+    addAdvancedParticleSystems();
+    addAdvancedTreeMechanics();
+    addAdvancedWeatherMechanics();
+    addAdvancedEcosystemMechanics();
+    addAdvancedVisualEnhancements();
+    addAdvancedAudioEnhancements();
+    addAdvancedInteractionEnhancements();
+    addAdvancedPhenomenologicalEnhancements();
+    addAdvancedRainbowSystem();
+    addAdvancedMeteorSystem();
+    addAdvancedAuroraSystem();
+    addAdvancedLightningSystem();
+    addAdvancedWindParticleSystem();
+    addAdvancedDustDevilSystem();
+    addAdvancedHailSystem();
+    addAdvancedMistSystem();
+    addAdvancedSunbeamSystem();
+    addAdvancedCloudShadowSystem();
+    addAdvancedReflectionSystem();
+    addAdvancedFrostPatternSystem();
+    addAdvancedIcicleSystem();
+    addAdvancedBarkTextureSystem();
+    addAdvancedLeafVeinSystem();
+    addAdvancedRootSystem();
+    addAdvancedNestSystem();
+    addAdvancedSpiderWebSystem();
+    addAdvancedDandelionSeedSystem();
+    addAdvancedCaterpillarSystem();
+    addAdvancedLadybugSystem();
+    addAdvancedSnailSystem();
+    addAdvancedAntSystem();
+    addAdvancedDragonflySystem();
+    addAdvancedGrasshopperSystem();
+    addAdvancedCicadaSystem();
+    addAdvancedMothSystem();
+    addAdvancedFireflySystem();
+    addAdvancedBeeSystem();
 
     ctx.clearRect(0, 0, width, height);
     drawSky(time);
     drawMountains(time);
     drawCloudsLayer();
     drawRain();
+    drawSnow();
     drawFirefliesLayer();
     drawBirdsLayer(time);
     drawGround();
@@ -1520,11 +3068,2445 @@
     drawBirdOnTree(time);
     drawInsects(time);
     drawWorms(time);
+    drawButterflies(time);
+    drawSquirrels(time);
+    drawRabbits(time);
+    drawDewdrops(time);
+    drawMushrooms(time);
+    drawFlowers(time);
+    drawFallingLeaves(time);
+    drawFallenFruits(time);
+    drawFrostParticles(time);
+    drawShadows(time);
+    drawEnhancedSnowman(time);
+    enhanceLightningEffects();
+    addPhenomenologicalEffects();
+    addRainbowEffect();
+    addStarFormation();
+    addMeteorShower();
+    addAuroraEffect();
+    addLightningBranching();
+    addWindParticles();
+    addDustDevils();
+    addHailEffect();
+    addMistEffect();
+    addSunbeams();
+    addMoonPhases();
+    addCometEffect();
+    addShootingStars();
+    addCloudShadows();
+    addReflections();
+    addFrostPatterns();
+    addIcicles();
+    addBarkTexture();
+    addLeafVeins();
+    addRootSystem();
+    addNestEffect();
+    addSpiderWebs();
+    addDandelionSeeds();
+    addCaterpillars();
+    addLadybugs();
+    addSnails();
+    addAnts();
+    addDragonflies();
+    addGrasshoppers();
+    addCicadas();
+    addMoths();
+    addFirefliesEnhanced();
+    addBeesEnhanced();
+    addAdvancedRainbowSystem();
+    addAdvancedMeteorSystem();
+    addAdvancedAuroraSystem();
+    addAdvancedLightningSystem();
+    addAdvancedWindParticleSystem();
+    addAdvancedDustDevilSystem();
+    addAdvancedHailSystem();
+    addAdvancedMistSystem();
+    addAdvancedSunbeamSystem();
+    addAdvancedCloudShadowSystem();
+    addAdvancedReflectionSystem();
+    addAdvancedFrostPatternSystem();
+    addAdvancedIcicleSystem();
+    addAdvancedBarkTextureSystem();
+    addAdvancedLeafVeinSystem();
+    addAdvancedRootSystem();
+    addAdvancedNestSystem();
+    addAdvancedSpiderWebSystem();
+    addAdvancedDandelionSeedSystem();
+    addAdvancedCaterpillarSystem();
+    addAdvancedLadybugSystem();
+    addAdvancedSnailSystem();
+    addAdvancedAntSystem();
+    addAdvancedDragonflySystem();
+    addAdvancedGrasshopperSystem();
+    addAdvancedCicadaSystem();
+    addAdvancedMothSystem();
+    addAdvancedFireflySystem();
+    addAdvancedBeeSystem();
     drawSawOverlay();
 
     updateHud();
 
     requestAnimationFrame(loop);
+  }
+
+  function addAdvancedRainPhysics() {
+    if (weather === 'rainy' || weather === 'stormy') {
+      rainDrops.forEach((drop) => {
+        const windEffect = wind * 0.02;
+        drop.x += windEffect;
+        drop.speed += windEffect * 0.1;
+        drop.speed = clamp(drop.speed, 0.2, 1.5);
+      });
+    }
+  }
+
+  function addAdvancedSnowPhysics() {
+    if (weather === 'snowy' || getSeasonType() === 'winter') {
+      snowflakes.forEach((flake) => {
+        const windEffect = wind * 0.03;
+        flake.drift += windEffect;
+        flake.speed += windEffect * 0.05;
+        flake.speed = clamp(flake.speed, 0.03, 0.25);
+      });
+    }
+  }
+
+  function addCloudFormation() {
+    if (weather === 'cloudy' || weather === 'rainy' || weather === 'stormy') {
+      if (clouds.length < 12 && Math.random() < 0.0001) {
+        clouds.push({
+          x: -200,
+          y: height * (0.08 + Math.random() * 0.2),
+          speed: 10 + Math.random() * 25,
+          scale: 0.6 + Math.random() * 1.2,
+          opacity: 0.2 + Math.random() * 0.2
+        });
+      }
+    }
+  }
+
+  function addBirdMigration() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'autumn' || seasonType === 'winter') {
+      if (Math.random() < 0.00005 && birds.length > 5) {
+        birds = birds.filter((bird, idx) => idx < birds.length - 1);
+      }
+    } else if (seasonType === 'spring') {
+      if (Math.random() < 0.0001 && birds.length < 15) {
+        birds.push(spawnBird());
+      }
+    }
+  }
+
+  function addSeasonalAnimalBehavior() {
+    const seasonType = getSeasonType();
+    
+    if (seasonType === 'winter') {
+      squirrels.forEach((squirrel) => {
+        squirrel.speed *= 0.8;
+      });
+      rabbits.forEach((rabbit) => {
+        rabbit.restTimer += deltaMs * 0.5;
+      });
+    } else if (seasonType === 'spring') {
+      if (rabbits.length < 3 && Math.random() < 0.0003) {
+        rabbits.push(spawnRabbit());
+      }
+    }
+  }
+
+  function addPollenEffects() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' && weather === 'sunny') {
+      if (Math.random() < 0.0002) {
+        for (let i = 0; i < 3; i++) {
+          sawdust.push({
+            x: Math.random() * width,
+            y: height * (0.3 + Math.random() * 0.4),
+            vx: (Math.random() - 0.5) * 0.1,
+            vy: -0.05 - Math.random() * 0.1,
+            life: 0.8 + Math.random() * 0.2,
+            type: 'pollen'
+          });
+        }
+      }
+    }
+  }
+
+  function addFogEffects() {
+    const seasonType = getSeasonType();
+    if ((seasonType === 'autumn' || seasonType === 'winter') && weather === 'cloudy' && Math.random() < 0.0001) {
+      for (let i = 0; i < 5; i++) {
+        sawdust.push({
+          x: Math.random() * width,
+          y: height - 50 + Math.random() * 30,
+          vx: (Math.random() - 0.5) * 0.02,
+          vy: -0.01 - Math.random() * 0.02,
+          life: 0.5 + Math.random() * 0.5,
+          type: 'fog'
+        });
+      }
+    }
+  }
+
+  function addRainbowEffect() {
+    if (weather === 'sunny' && Math.random() < 0.00005) {
+      const rainbow = {
+        x: width * 0.3,
+        y: height * 0.4,
+        radius: 150,
+        life: 1,
+        phase: Math.random() * Math.PI * 2
+      };
+      
+      for (let i = 0; i < 7; i++) {
+        const hue = i * 30;
+        const alpha = (1 - i / 7) * 0.3;
+        ctx.strokeStyle = `hsla(${hue}, 100%, 50%, ${alpha * rainbow.life})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(rainbow.x, rainbow.y, rainbow.radius + i * 5, 0, Math.PI);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function addStarFormation() {
+    if (weather === 'sunny' && Math.random() < 0.00001) {
+      stars.push({
+        x: Math.random(),
+        y: Math.random(),
+        size: 0.5 + Math.random() * 1.5,
+        speed: 0.0005 + Math.random() * 0.001,
+        phase: Math.random() * Math.PI * 2
+      });
+    }
+  }
+
+  function addMeteorShower() {
+    if (weather === 'sunny' && Math.random() < 0.000005) {
+      for (let i = 0; i < 3; i++) {
+        const meteor = {
+          x: Math.random() * width,
+          y: -10,
+          vx: (Math.random() - 0.5) * 0.3,
+          vy: 0.5 + Math.random() * 0.5,
+          life: 1,
+          trail: []
+        };
+        
+        for (let j = 0; j < 5; j++) {
+          meteor.trail.push({
+            x: meteor.x,
+            y: meteor.y,
+            life: 1 - j * 0.2
+          });
+        }
+        
+        sawdust.push(meteor);
+      }
+    }
+  }
+
+  function addAuroraEffect() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'winter' && weather === 'sunny' && Math.random() < 0.00001) {
+      for (let i = 0; i < 20; i++) {
+        const y = height * (0.1 + Math.random() * 0.3);
+        const wave = Math.sin(i * 0.3) * 30;
+        ctx.strokeStyle = `hsla(${180 + i * 2}, 100%, 60%, ${0.3 - i * 0.01})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(i * (width / 20), y + wave);
+        ctx.lineTo((i + 1) * (width / 20), y + Math.sin((i + 1) * 0.3) * 30);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function addLightningBranching() {
+    if (lightning) {
+      const branches = 3 + Math.floor(Math.random() * 4);
+      for (let i = 0; i < branches; i++) {
+        const angle = (Math.PI / branches) * i - Math.PI / 2;
+        const length = 30 + Math.random() * 40;
+        ctx.strokeStyle = `rgba(200, 220, 255, ${lightning.intensity * lightning.life * 0.6})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(lightning.x, lightning.y);
+        ctx.lineTo(
+          lightning.x + Math.cos(angle) * length,
+          lightning.y + Math.sin(angle) * length
+        );
+        ctx.stroke();
+      }
+    }
+  }
+
+  function addWindParticles() {
+    if (Math.abs(wind) > 0.3) {
+      if (Math.random() < 0.001) {
+        for (let i = 0; i < 2; i++) {
+          sawdust.push({
+            x: Math.random() * width,
+            y: height * (0.4 + Math.random() * 0.3),
+            vx: wind * 0.3 + (Math.random() - 0.5) * 0.2,
+            vy: (Math.random() - 0.5) * 0.1,
+            life: 0.6 + Math.random() * 0.4,
+            type: 'wind'
+          });
+        }
+      }
+    }
+  }
+
+  function addDustDevils() {
+    if (weather === 'sunny' && Math.abs(wind) > 0.4 && Math.random() < 0.00001) {
+      const devil = {
+        x: Math.random() * width,
+        y: height - 40,
+        radius: 5,
+        life: 1,
+        rotation: 0
+      };
+      
+      for (let i = 0; i < 20; i++) {
+        const angle = (Math.PI * 2 / 20) * i;
+        sawdust.push({
+          x: devil.x + Math.cos(angle) * devil.radius,
+          y: devil.y + Math.sin(angle) * devil.radius,
+          vx: Math.cos(angle) * 0.2,
+          vy: -0.3 - Math.random() * 0.2,
+          life: 0.5 + Math.random() * 0.5,
+          type: 'dust'
+        });
+      }
+    }
+  }
+
+  function addHailEffect() {
+    if (weather === 'stormy' && Math.random() < 0.0001) {
+      for (let i = 0; i < 5; i++) {
+        rainDrops.push({
+          x: Math.random() * width,
+          y: -10,
+          speed: 0.8 + Math.random() * 0.6,
+          length: 3 + Math.random() * 4,
+          size: 2 + Math.random() * 3,
+          angle: 0,
+          type: 'hail'
+        });
+      }
+    }
+  }
+
+  function addMistEffect() {
+    const seasonType = getSeasonType();
+    if ((seasonType === 'autumn' || seasonType === 'winter') && weather === 'cloudy' && Math.random() < 0.00005) {
+      for (let i = 0; i < 10; i++) {
+        sawdust.push({
+          x: Math.random() * width,
+          y: height - 60 + Math.random() * 40,
+          vx: (Math.random() - 0.5) * 0.01,
+          vy: -0.005 - Math.random() * 0.01,
+          life: 0.7 + Math.random() * 0.3,
+          type: 'mist',
+          size: 20 + Math.random() * 30
+        });
+      }
+    }
+  }
+
+  function addSunbeams() {
+    if (weather === 'sunny' && Math.random() < 0.0001) {
+      const sunX = width * 0.8;
+      const sunY = height * 0.15;
+      for (let i = 0; i < 3; i++) {
+        const angle = (Math.PI / 6) * (i - 1);
+        const gradient = ctx.createLinearGradient(
+          sunX, sunY,
+          sunX + Math.cos(angle) * 200,
+          sunY + Math.sin(angle) * 200
+        );
+        gradient.addColorStop(0, 'rgba(255, 255, 200, 0.4)');
+        gradient.addColorStop(1, 'rgba(255, 255, 200, 0)');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.moveTo(sunX, sunY);
+        ctx.lineTo(sunX + Math.cos(angle) * 200, sunY + Math.sin(angle) * 200);
+        ctx.lineTo(sunX + Math.cos(angle) * 200 + 20, sunY + Math.sin(angle) * 200);
+        ctx.lineTo(sunX + 20, sunY);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+
+  function addMoonPhases() {
+    const seasonType = getSeasonType();
+    if (weather === 'sunny' || weather === 'cloudy') {
+      const moonPhase = (performance.now() * 0.00001) % 1;
+      const moonX = width * 0.2;
+      const moonY = height * 0.2;
+      const moonRadius = 25;
+      
+      ctx.fillStyle = `rgba(240, 240, 255, ${0.6 + Math.sin(moonPhase * Math.PI * 2) * 0.3})`;
+      ctx.beginPath();
+      ctx.arc(moonX, moonY, moonRadius, 0, Math.PI * 2);
+      ctx.fill();
+      
+      if (moonPhase > 0.5) {
+        ctx.fillStyle = 'rgba(20, 20, 40, 0.8)';
+        ctx.beginPath();
+        ctx.ellipse(
+          moonX - (moonPhase - 0.5) * moonRadius * 2,
+          moonY,
+          moonRadius * (moonPhase - 0.5) * 2,
+          moonRadius,
+          0, 0, Math.PI * 2
+        );
+        ctx.fill();
+      }
+    }
+  }
+
+  function addCometEffect() {
+    if (weather === 'sunny' && Math.random() < 0.000001) {
+      const comet = {
+        x: -50,
+        y: height * 0.2,
+        vx: 0.3,
+        vy: 0.1,
+        life: 1,
+        tail: []
+      };
+      
+      for (let i = 0; i < 15; i++) {
+        comet.tail.push({
+          x: comet.x - i * 5,
+          y: comet.y - i * 2,
+          life: 1 - i * 0.06
+        });
+      }
+      
+      sawdust.push(comet);
+    }
+  }
+
+  function addShootingStars() {
+    if (weather === 'sunny' && Math.random() < 0.00001) {
+      const star = {
+        x: Math.random() * width,
+        y: -10,
+        vx: (Math.random() - 0.5) * 0.2,
+        vy: 0.4 + Math.random() * 0.3,
+        life: 1,
+        brightness: 1
+      };
+      
+      ctx.strokeStyle = `rgba(255, 255, 255, ${star.life * star.brightness})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(star.x, star.y);
+      ctx.lineTo(star.x + star.vx * 50, star.y + star.vy * 50);
+      ctx.stroke();
+    }
+  }
+
+  function addCloudShadows() {
+    if (weather === 'cloudy' || weather === 'rainy' || weather === 'stormy') {
+      clouds.forEach((cloud) => {
+        const shadowY = height - 40;
+        const shadowX = cloud.x;
+        const shadowSize = 120 * cloud.scale * 0.8;
+        
+        ctx.fillStyle = `rgba(0, 0, 0, ${cloud.opacity * 0.2})`;
+        ctx.beginPath();
+        ctx.ellipse(shadowX, shadowY, shadowSize, shadowSize * 0.3, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+  }
+
+  function addReflections() {
+    puddles.forEach((puddle) => {
+      if (puddle.size > 15) {
+        const reflection = {
+          x: puddle.x,
+          y: puddle.y,
+          size: puddle.size * 0.6,
+          opacity: puddle.life * 0.3
+        };
+        
+        ctx.save();
+        ctx.globalAlpha = reflection.opacity;
+        ctx.fillStyle = 'rgba(100, 150, 200, 0.4)';
+        ctx.beginPath();
+        ctx.ellipse(reflection.x, reflection.y, reflection.size, reflection.size * 0.2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+    });
+  }
+
+  function addFrostPatterns() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'winter' && weather === 'snowy') {
+      branchSegments.forEach((segment) => {
+        if (segment.branch.hasSnow && Math.random() < 0.01) {
+          const pattern = {
+            x: (segment.x1 + segment.x2) / 2,
+            y: (segment.y1 + segment.y2) / 2,
+            size: 3 + Math.random() * 5,
+            life: 1
+          };
+          
+          ctx.strokeStyle = `rgba(220, 240, 255, ${pattern.life * 0.6})`;
+          ctx.lineWidth = 0.5;
+          for (let i = 0; i < 6; i++) {
+            const angle = (Math.PI / 3) * i;
+            ctx.beginPath();
+            ctx.moveTo(pattern.x, pattern.y);
+            ctx.lineTo(
+              pattern.x + Math.cos(angle) * pattern.size,
+              pattern.y + Math.sin(angle) * pattern.size
+            );
+            ctx.stroke();
+          }
+        }
+      });
+    }
+  }
+
+  function addIcicles() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'winter' && weather === 'snowy') {
+      branchSegments.forEach((segment) => {
+        if (segment.branch.depth < 3 && Math.random() < 0.0001) {
+          const icicle = {
+            x: (segment.x1 + segment.x2) / 2,
+            y: (segment.y1 + segment.y2) / 2,
+            length: 5 + Math.random() * 10,
+            width: 1 + Math.random() * 2,
+            life: 1
+          };
+          
+          ctx.fillStyle = `rgba(200, 230, 255, ${icicle.life * 0.8})`;
+          ctx.beginPath();
+          ctx.moveTo(icicle.x, icicle.y);
+          ctx.lineTo(icicle.x - icicle.width, icicle.y + icicle.length);
+          ctx.lineTo(icicle.x + icicle.width, icicle.y + icicle.length);
+          ctx.closePath();
+          ctx.fill();
+        }
+      });
+    }
+  }
+
+  function addBarkTexture() {
+    branchSegments.forEach((segment) => {
+      if (segment.branch.barkTexture && segment.branch.depth < 2) {
+        const texture = segment.branch.barkTexture;
+        const x = (segment.x1 + segment.x2) / 2;
+        const y = (segment.y1 + segment.y2) / 2;
+        
+        ctx.strokeStyle = `rgba(60, 40, 30, ${texture * 0.3})`;
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 3; i++) {
+          ctx.beginPath();
+          ctx.moveTo(x - 5 + i * 5, y - 2);
+          ctx.lineTo(x - 5 + i * 5, y + 2);
+          ctx.stroke();
+        }
+      }
+    });
+  }
+
+  function addLeafVeins() {
+    const seasonType = getSeasonType();
+    if (seasonType !== 'winter') {
+      branchSegments.forEach((segment) => {
+        if (segment.branch.depth >= CONFIG.maxDepth - 1 && Math.random() < 0.01) {
+          const leafX = segment.x2;
+          const leafY = segment.y2;
+          
+          ctx.strokeStyle = 'rgba(100, 150, 100, 0.3)';
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          ctx.moveTo(leafX, leafY);
+          for (let i = 0; i < 3; i++) {
+            const angle = (Math.PI / 6) * (i - 1);
+            ctx.lineTo(
+              leafX + Math.cos(angle) * 8,
+              leafY + Math.sin(angle) * 8
+            );
+          }
+          ctx.stroke();
+        }
+      });
+    }
+  }
+
+  function addRootSystem() {
+    if (growth > 0.3) {
+      const rootX = width / 2;
+      const rootY = height - 60;
+      const rootDepth = (growth - 0.3) * 30;
+      
+      ctx.strokeStyle = 'rgba(80, 60, 40, 0.4)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 3; i++) {
+        const angle = (Math.PI / 6) * (i - 1);
+        ctx.beginPath();
+        ctx.moveTo(rootX, rootY);
+        ctx.quadraticCurveTo(
+          rootX + Math.cos(angle) * rootDepth * 0.5,
+          rootY + rootDepth * 0.5,
+          rootX + Math.cos(angle) * rootDepth,
+          rootY + rootDepth
+        );
+        ctx.stroke();
+      }
+    }
+  }
+
+  function addNestEffect() {
+    if (birdOnTree && Math.random() < 0.0001) {
+      const nest = {
+        x: birdOnTree.x,
+        y: birdOnTree.y + 5,
+        size: 8,
+        life: 1
+      };
+      
+      ctx.fillStyle = `rgba(139, 90, 43, ${nest.life * 0.6})`;
+      ctx.beginPath();
+      ctx.ellipse(nest.x, nest.y, nest.size, nest.size * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = `rgba(100, 70, 30, ${nest.life * 0.8})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(nest.x, nest.y, nest.size, nest.size * 0.6, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  function addSpiderWebs() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'autumn' && Math.random() < 0.00001) {
+      if (branchSegments.length > 0) {
+        const segment = branchSegments[Math.floor(Math.random() * branchSegments.length)];
+        const web = {
+          x: (segment.x1 + segment.x2) / 2,
+          y: (segment.y1 + segment.y2) / 2,
+          radius: 10 + Math.random() * 15,
+          life: 1
+        };
+        
+        ctx.strokeStyle = `rgba(255, 255, 255, ${web.life * 0.4})`;
+        ctx.lineWidth = 0.5;
+        for (let i = 0; i < 8; i++) {
+          const angle = (Math.PI * 2 / 8) * i;
+          ctx.beginPath();
+          ctx.moveTo(web.x, web.y);
+          ctx.lineTo(
+            web.x + Math.cos(angle) * web.radius,
+            web.y + Math.sin(angle) * web.radius
+          );
+          ctx.stroke();
+        }
+        
+        for (let i = 0; i < 3; i++) {
+          const spiralRadius = web.radius * (i + 1) / 4;
+          ctx.beginPath();
+          ctx.arc(web.x, web.y, spiralRadius, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+    }
+  }
+
+  function addDandelionSeeds() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' && weather === 'sunny' && Math.random() < 0.0001) {
+      for (let i = 0; i < 5; i++) {
+        const seed = {
+          x: width * (0.3 + Math.random() * 0.4),
+          y: height - 40,
+          vx: (Math.random() - 0.5) * 0.15,
+          vy: -0.1 - Math.random() * 0.15,
+          life: 1,
+          rotation: Math.random() * Math.PI * 2
+        };
+        
+        ctx.save();
+        ctx.translate(seed.x, seed.y);
+        ctx.rotate(seed.rotation);
+        ctx.fillStyle = `rgba(255, 255, 200, ${seed.life * 0.7})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, 2, 0, Math.PI * 2);
+        ctx.fill();
+        for (let j = 0; j < 8; j++) {
+          const angle = (Math.PI * 2 / 8) * j;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(angle) * 4, Math.sin(angle) * 4);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+  }
+
+  function addCaterpillars() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' || seasonType === 'summer') {
+      if (Math.random() < 0.00005) {
+        if (branchSegments.length > 0) {
+          const segment = branchSegments[Math.floor(Math.random() * branchSegments.length)];
+          const caterpillar = {
+            x: (segment.x1 + segment.x2) / 2,
+            y: (segment.y1 + segment.y2) / 2,
+            length: 8 + Math.random() * 6,
+            segments: 4,
+            phase: Math.random() * Math.PI * 2,
+            life: 1
+          };
+          
+          ctx.strokeStyle = `rgba(100, 150, 50, ${caterpillar.life * 0.8})`;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          for (let i = 0; i <= caterpillar.segments; i++) {
+            const t = i / caterpillar.segments;
+            const offsetX = Math.sin(caterpillar.phase + t * Math.PI * 2) * 2;
+            const offsetY = Math.cos(caterpillar.phase + t * Math.PI * 2) * 1;
+            const x = caterpillar.x + (i * caterpillar.length / caterpillar.segments) + offsetX;
+            const y = caterpillar.y + offsetY;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        }
+      }
+    }
+  }
+
+  function addLadybugs() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' || seasonType === 'summer') {
+      if (Math.random() < 0.00003) {
+        if (branchSegments.length > 0) {
+          const segment = branchSegments[Math.floor(Math.random() * branchSegments.length)];
+          const ladybug = {
+            x: (segment.x1 + segment.x2) / 2,
+            y: (segment.y1 + segment.y2) / 2,
+            size: 2 + Math.random() * 2,
+            phase: Math.random() * Math.PI * 2,
+            life: 1
+          };
+          
+          ctx.fillStyle = `rgba(220, 50, 50, ${ladybug.life * 0.9})`;
+          ctx.beginPath();
+          ctx.arc(ladybug.x, ladybug.y, ladybug.size, 0, Math.PI * 2);
+          ctx.fill();
+          
+          ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+          ctx.beginPath();
+          ctx.arc(ladybug.x, ladybug.y - ladybug.size * 0.3, ladybug.size * 0.2, 0, Math.PI * 2);
+          ctx.fill();
+          
+          for (let i = 0; i < 3; i++) {
+            ctx.beginPath();
+            ctx.arc(
+              ladybug.x + (i - 1) * ladybug.size * 0.4,
+              ladybug.y + ladybug.size * 0.3,
+              ladybug.size * 0.15,
+              0, Math.PI * 2
+            );
+            ctx.fill();
+          }
+        }
+      }
+    }
+  }
+
+  function addSnails() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' && weather === 'rainy') {
+      if (Math.random() < 0.00002) {
+        const snail = {
+          x: width * (0.2 + Math.random() * 0.6),
+          y: height - 40,
+          speed: 0.02 + Math.random() * 0.03,
+          direction: Math.random() > 0.5 ? 1 : -1,
+          shellPhase: Math.random() * Math.PI * 2,
+          life: 1
+        };
+        
+        ctx.fillStyle = `rgba(200, 150, 100, ${snail.life * 0.8})`;
+        ctx.beginPath();
+        ctx.ellipse(snail.x, snail.y, 4, 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = `rgba(150, 100, 50, ${snail.life * 0.9})`;
+        ctx.beginPath();
+        ctx.arc(snail.x + snail.direction * 3, snail.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.strokeStyle = `rgba(100, 70, 30, ${snail.life * 0.8})`;
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 3; i++) {
+          const angle = snail.shellPhase + (Math.PI * 2 / 3) * i;
+          ctx.beginPath();
+          ctx.arc(
+            snail.x + snail.direction * 3,
+            snail.y,
+            3,
+            angle, angle + Math.PI / 3
+          );
+          ctx.stroke();
+        }
+      }
+    }
+  }
+
+  function addAnts() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' || seasonType === 'summer') {
+      if (Math.random() < 0.0001) {
+        const ant = {
+          x: width * (0.3 + Math.random() * 0.4),
+          y: height - 40,
+          speed: 0.1 + Math.random() * 0.15,
+          direction: Math.random() > 0.5 ? 1 : -1,
+          phase: Math.random() * Math.PI * 2,
+          life: 1
+        };
+        
+        ctx.fillStyle = `rgba(50, 30, 20, ${ant.life * 0.9})`;
+        ctx.beginPath();
+        ctx.ellipse(ant.x, ant.y, 2, 1, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.arc(ant.x + ant.direction * 2, ant.y, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function addDragonflies() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'summer' && weather === 'sunny') {
+      if (Math.random() < 0.00005) {
+        const dragonfly = {
+          x: Math.random() * width,
+          y: height * (0.3 + Math.random() * 0.4),
+          targetX: Math.random() * width,
+          targetY: height * (0.3 + Math.random() * 0.4),
+          speed: 0.4 + Math.random() * 0.3,
+          wingPhase: Math.random() * Math.PI * 2,
+          life: 1
+        };
+        
+        ctx.save();
+        ctx.translate(dragonfly.x, dragonfly.y);
+        
+        ctx.fillStyle = `rgba(100, 150, 200, ${dragonfly.life * 0.8})`;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 6, 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        const wingOpen = Math.abs(Math.sin(dragonfly.wingPhase));
+        ctx.fillStyle = `rgba(150, 200, 255, ${dragonfly.life * 0.4})`;
+        ctx.beginPath();
+        ctx.ellipse(-3, 0, 4 * wingOpen, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(3, 0, 4 * wingOpen, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.restore();
+      }
+    }
+  }
+
+  function addGrasshoppers() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'summer' && Math.random() < 0.00003) {
+      const grasshopper = {
+        x: width * (0.3 + Math.random() * 0.4),
+        y: height - 40,
+        jumpPhase: 0,
+        direction: Math.random() > 0.5 ? 1 : -1,
+        life: 1
+      };
+      
+      ctx.fillStyle = `rgba(100, 150, 50, ${grasshopper.life * 0.8})`;
+      ctx.beginPath();
+      ctx.ellipse(grasshopper.x, grasshopper.y, 4, 2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.beginPath();
+      ctx.ellipse(grasshopper.x + grasshopper.direction * 3, grasshopper.y, 3, 1.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function addCicadas() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'summer' && Math.random() < 0.00002) {
+      if (branchSegments.length > 0) {
+        const segment = branchSegments[Math.floor(Math.random() * branchSegments.length)];
+        const cicada = {
+          x: (segment.x1 + segment.x2) / 2,
+          y: (segment.y1 + segment.y2) / 2,
+          size: 3 + Math.random() * 2,
+          phase: Math.random() * Math.PI * 2,
+          life: 1
+        };
+        
+        ctx.fillStyle = `rgba(150, 120, 80, ${cicada.life * 0.9})`;
+        ctx.beginPath();
+        ctx.ellipse(cicada.x, cicada.y, cicada.size, cicada.size * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = `rgba(200, 200, 200, ${cicada.life * 0.6})`;
+        ctx.beginPath();
+        ctx.ellipse(cicada.x, cicada.y, cicada.size * 0.8, cicada.size * 0.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function addMoths() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'summer' && weather !== 'rainy' && Math.random() < 0.00004) {
+      const moth = {
+        x: Math.random() * width,
+        y: height * (0.4 + Math.random() * 0.3),
+        targetX: Math.random() * width,
+        targetY: height * (0.4 + Math.random() * 0.3),
+        speed: 0.15 + Math.random() * 0.2,
+        wingPhase: Math.random() * Math.PI * 2,
+        life: 1,
+        color: Math.random() > 0.5 ? 'brown' : 'gray'
+      };
+      
+      ctx.save();
+      ctx.translate(moth.x, moth.y);
+      
+      const color = moth.color === 'brown' ? 'rgba(139, 90, 43' : 'rgba(128, 128, 128';
+      const wingOpen = Math.abs(Math.sin(moth.wingPhase));
+      
+      ctx.fillStyle = `${color}, ${moth.life * 0.7})`;
+      ctx.beginPath();
+      ctx.ellipse(-3, 0, 5 * wingOpen, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(3, 0, 5 * wingOpen, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.fillStyle = `${color}, ${moth.life * 0.9})`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 2, 3, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.restore();
+    }
+  }
+
+  function addFirefliesEnhanced() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'summer' && weather === 'sunny' && Math.random() < 0.0001) {
+      for (let i = 0; i < 2; i++) {
+        floatingLights.push({
+          x: Math.random(),
+          y: Math.random(),
+          scale: 0.6 + Math.random() * 1.4,
+          speed: 0.2 + Math.random() * 0.6,
+          hue: 80 + Math.random() * 40,
+          seed: Math.random() * 10,
+          pulsePhase: Math.random() * Math.PI * 2
+        });
+      }
+    }
+  }
+
+  function addBeesEnhanced() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' || seasonType === 'summer') {
+      if (insects.length < 5 && Math.random() < 0.0005) {
+        const bee = spawnInsect();
+        bee.type = 'bee';
+        bee.size = 2 + Math.random() * 2;
+        insects.push(bee);
+      }
+    }
+  }
+
+  function addAdvancedCloudPhysics() {
+    clouds.forEach((cloud) => {
+      cloud.turbulence = cloud.turbulence || 0;
+      cloud.turbulence += (Math.random() - 0.5) * 0.002;
+      cloud.turbulence = clamp(cloud.turbulence, -0.05, 0.05);
+      cloud.y += cloud.turbulence * deltaMs * 0.01;
+      cloud.y = clamp(cloud.y, height * 0.05, height * 0.3);
+    });
+  }
+
+  function addAdvancedWindEffects() {
+    if (Math.abs(wind) > 0.2) {
+      branchSegments.forEach((segment) => {
+        if (!segment.branch.windBend) {
+          segment.branch.windBend = 0;
+        }
+        segment.branch.windBend += wind * deltaMs * 0.0001;
+        segment.branch.windBend = clamp(segment.branch.windBend, -0.2, 0.2);
+      });
+    }
+  }
+
+  function addAdvancedSeasonalTransitions() {
+    const seasonType = getSeasonType();
+    const time = performance.now();
+    
+    if (seasonType === 'spring') {
+      flowers.forEach((flower) => {
+        flower.growth = Math.min(1, flower.growth + deltaMs * 0.0001);
+      });
+    } else if (seasonType === 'autumn') {
+      fallingLeaves.forEach((leaf) => {
+        leaf.vx += wind * 0.02;
+        leaf.vy += 0.0001 * deltaMs;
+      });
+    } else if (seasonType === 'winter') {
+      snowflakes.forEach((flake) => {
+        flake.drift += wind * 0.03;
+      });
+    }
+  }
+
+  function addAdvancedParticleInteractions() {
+    rainDrops.forEach((drop) => {
+      if (drop.y > height - 60) {
+        const nearbyPuddle = puddles.find(p => Math.abs(p.x - drop.x) < 20);
+        if (nearbyPuddle) {
+          nearbyPuddle.size = Math.min(50, nearbyPuddle.size + drop.size * 0.3);
+          nearbyPuddle.ripples = Math.min(5, nearbyPuddle.ripples + 0.15);
+        }
+      }
+    });
+  }
+
+  function addAdvancedLightingSystem() {
+    const time = performance.now();
+    const dayPhase = (time * 0.0001) % (Math.PI * 2);
+    const lightIntensity = Math.max(0.2, Math.sin(dayPhase) * 0.5 + 0.5);
+    
+    if (weather === 'sunny') {
+      sunIntensity = lerp(sunIntensity, lightIntensity, deltaMs * 0.0001);
+    }
+  }
+
+  function addAdvancedEcosystemDynamics() {
+    butterflies.forEach((butterfly) => {
+      flowers.forEach((flower) => {
+        const dist = Math.hypot(butterfly.x - flower.x, butterfly.y - flower.y);
+        if (dist < 25) {
+          flower.growth = Math.min(1, flower.growth + deltaMs * 0.00001);
+        }
+      });
+    });
+    
+    squirrels.forEach((squirrel) => {
+      fallenFruits.forEach((fruit) => {
+        const dist = Math.abs(squirrel.x - fruit.x);
+        if (dist < 20) {
+          fruit.life -= deltaMs * 0.0001;
+          if (fruit.life <= 0) {
+            squirrel.life = Math.min(1, squirrel.life + 0.1);
+          }
+        }
+      });
+    });
+  }
+
+  function addAdvancedWeatherSystem() {
+    if (weather === 'stormy') {
+      windTarget = (Math.random() - 0.5) * 1.0;
+      if (Math.random() < 0.001) {
+        windTarget *= 2;
+      }
+    } else if (weather === 'snowy') {
+      windTarget = (Math.random() - 0.5) * 0.3;
+    } else if (weather === 'sunny') {
+      windTarget = (Math.random() - 0.5) * 0.4;
+    }
+  }
+
+  function addAdvancedGrowthMechanics() {
+    if (growth > 0.4) {
+      branchSegments.forEach((segment) => {
+        if (segment.branch.depth < 4 && !segment.branch.enhancedGrowth) {
+          segment.branch.enhancedGrowth = true;
+          segment.branch.growthRate = 1 + Math.random() * 0.3;
+        }
+      });
+    }
+  }
+
+  function addAdvancedVisualEffects() {
+    const seasonType = getSeasonType();
+    
+    if (seasonType === 'winter' && weather === 'snowy') {
+      branchSegments.forEach((segment) => {
+        if (segment.branch.hasSnow) {
+          const snowAmount = segment.branch.snowAmount || 0;
+          ctx.fillStyle = `rgba(255, 255, 255, ${snowAmount * 0.6})`;
+          ctx.beginPath();
+          ctx.ellipse(
+            (segment.x1 + segment.x2) / 2,
+            (segment.y1 + segment.y2) / 2,
+            3 + snowAmount * 2,
+            2 + snowAmount,
+            0, 0, Math.PI * 2
+          );
+          ctx.fill();
+        }
+      });
+    }
+  }
+
+  function addAdvancedAudioSystem() {
+    if (weather === 'stormy' && thunderGain) {
+      const intensity = Math.abs(wind) * 0.5 + skyDarkness * 0.3;
+      thunderGain.gain.value = clamp(intensity * 0.2, 0, 0.5);
+    }
+    
+    if (weather === 'rainy' && rainGain) {
+      const intensity = rainDrops.length / 200;
+      rainGain.gain.value = clamp(intensity * 0.3, 0, 0.4);
+    }
+  }
+
+  function addAdvancedInteractionSystem() {
+    if (birdOnTree) {
+      if (Math.random() < 0.0001) {
+        birdOnTree.animationPhase = (birdOnTree.animationPhase || 0) + 0.2;
+        if (birdOnTree.animationPhase > Math.PI * 2) {
+          birdOnTree.animationPhase = 0;
+        }
+      }
+    }
+  }
+
+  function addAdvancedPhenomenologicalSystem() {
+    const time = performance.now();
+    const seasonType = getSeasonType();
+    
+    if (seasonType === 'spring' && weather === 'sunny') {
+      if (Math.random() < 0.00005) {
+        const sunX = width * 0.8;
+        const sunY = height * 0.15;
+        for (let i = 0; i < 8; i++) {
+          const angle = (Math.PI * 2 / 8) * i;
+          const gradient = ctx.createRadialGradient(
+            sunX, sunY, 0,
+            sunX + Math.cos(angle) * 100, sunY + Math.sin(angle) * 100, 0
+          );
+          gradient.addColorStop(0, 'rgba(255, 255, 200, 0.5)');
+          gradient.addColorStop(1, 'rgba(255, 255, 200, 0)');
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.arc(sunX, sunY, 100, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  function addSeasonalColorTransitions() {
+    const seasonType = getSeasonType();
+    const time = performance.now();
+    
+    if (seasonType === 'spring') {
+      mountains.forEach((mountain) => {
+        mountain.springTint = mountain.springTint || 0;
+        mountain.springTint = Math.min(1, mountain.springTint + deltaMs * 0.00001);
+      });
+    } else if (seasonType === 'autumn') {
+      mountains.forEach((mountain) => {
+        mountain.autumnTint = mountain.autumnTint || 0;
+        mountain.autumnTint = Math.min(1, mountain.autumnTint + deltaMs * 0.00001);
+      });
+    }
+  }
+
+  function addAdvancedParticleSystems() {
+    if (weather === 'rainy' || weather === 'stormy') {
+      rainSplashes.forEach((splash) => {
+        splash.size += deltaMs * 0.0001;
+        splash.vx += (Math.random() - 0.5) * 0.001;
+        splash.vy += 0.0005 * deltaMs;
+      });
+    }
+    
+    if (getSeasonType() === 'winter') {
+      snowflakes.forEach((flake) => {
+        flake.size += (Math.random() - 0.5) * 0.01;
+        flake.size = clamp(flake.size, 1, 6);
+        flake.rotationSpeed += (Math.random() - 0.5) * 0.001;
+      });
+    }
+  }
+
+  function addAdvancedTreeMechanics() {
+    if (growth > 0.5) {
+      branchSegments.forEach((segment) => {
+        if (segment.branch.depth < 3 && !segment.branch.advancedGrowth) {
+          segment.branch.advancedGrowth = true;
+          segment.branch.growthMultiplier = 1 + Math.random() * 0.25;
+        }
+      });
+    }
+  }
+
+  function addAdvancedWeatherMechanics() {
+    if (weather === 'stormy') {
+      windTarget = (Math.random() - 0.5) * 1.2;
+      if (Math.random() < 0.001) {
+        windTarget *= 2.5;
+      }
+      skyDarkness = Math.min(1, skyDarkness + deltaMs * 0.00015);
+    } else if (weather === 'snowy') {
+      windTarget = (Math.random() - 0.5) * 0.4;
+      clouds.forEach((cloud) => {
+        cloud.opacity = Math.min(1, cloud.opacity + deltaMs * 0.00002);
+      });
+    } else if (weather === 'sunny') {
+      windTarget = (Math.random() - 0.5) * 0.5;
+      skyDarkness = Math.max(0, skyDarkness - deltaMs * 0.00008);
+    }
+  }
+
+  function addAdvancedEcosystemMechanics() {
+    butterflies.forEach((butterfly) => {
+      flowers.forEach((flower) => {
+        const dist = Math.hypot(butterfly.x - flower.x, butterfly.y - flower.y);
+        if (dist < 30) {
+          flower.growth = Math.min(1, flower.growth + deltaMs * 0.00002);
+          butterfly.life = Math.min(1, butterfly.life + deltaMs * 0.00001);
+        }
+      });
+    });
+    
+    squirrels.forEach((squirrel) => {
+      fallenFruits.forEach((fruit) => {
+        const dist = Math.abs(squirrel.x - fruit.x);
+        if (dist < 25) {
+          fruit.life -= deltaMs * 0.00015;
+          if (fruit.life <= 0) {
+            squirrel.life = Math.min(1, squirrel.life + 0.15);
+          }
+        }
+      });
+      
+      mushrooms.forEach((mushroom) => {
+        const dist = Math.abs(squirrel.x - mushroom.x);
+        if (dist < 20 && Math.random() < 0.01) {
+          squirrel.targetX = mushroom.x;
+        }
+      });
+    });
+    
+    rabbits.forEach((rabbit) => {
+      flowers.forEach((flower) => {
+        const dist = Math.abs(rabbit.x - flower.x);
+        if (dist < 15 && Math.random() < 0.01) {
+          flower.life -= 0.1;
+        }
+      });
+    });
+  }
+
+  function addAdvancedVisualEnhancements() {
+    const seasonType = getSeasonType();
+    const time = performance.now();
+    
+    if (seasonType === 'winter' && weather === 'snowy') {
+      branchSegments.forEach((segment) => {
+        if (segment.branch.hasSnow) {
+          const snowAmount = segment.branch.snowAmount || 0;
+          const snowProgress = Math.sin(time * 0.0005 + segment.branch.seed) * 0.3 + 0.7;
+          ctx.fillStyle = `rgba(255, 255, 255, ${snowAmount * snowProgress * 0.7})`;
+          ctx.beginPath();
+          ctx.ellipse(
+            (segment.x1 + segment.x2) / 2,
+            (segment.y1 + segment.y2) / 2,
+            4 + snowAmount * 3,
+            3 + snowAmount * 2,
+            0, 0, Math.PI * 2
+          );
+          ctx.fill();
+        }
+      });
+    }
+    
+    if (seasonType === 'autumn') {
+      fallingLeaves.forEach((leaf) => {
+        leaf.color = Math.random() > 0.3 ? 'yellow' : Math.random() > 0.5 ? 'orange' : 'red';
+      });
+    }
+  }
+
+  function addAdvancedAudioEnhancements() {
+    if (weather === 'stormy' && thunderGain) {
+      const intensity = Math.abs(wind) * 0.6 + skyDarkness * 0.4;
+      thunderGain.gain.value = clamp(intensity * 0.25, 0, 0.6);
+    }
+    
+    if (weather === 'rainy' && rainGain) {
+      const intensity = rainDrops.length / 200;
+      rainGain.gain.value = clamp(intensity * 0.35, 0, 0.45);
+    }
+    
+    if (weather === 'snowy') {
+      if (rainGain) {
+        rainGain.gain.value = 0;
+      }
+    }
+  }
+
+  function addAdvancedInteractionEnhancements() {
+    if (birdOnTree) {
+      if (Math.random() < 0.00015) {
+        birdOnTree.animationPhase = (birdOnTree.animationPhase || 0) + 0.25;
+        if (birdOnTree.animationPhase > Math.PI * 2) {
+          birdOnTree.animationPhase = 0;
+        }
+      }
+      
+      if (Math.random() < 0.00005) {
+        birdOnTree.headTurn = (birdOnTree.headTurn || 0) + (Math.random() - 0.5) * 0.2;
+        birdOnTree.headTurn = clamp(birdOnTree.headTurn, -0.3, 0.3);
+      }
+    }
+  }
+
+  function addAdvancedPhenomenologicalEnhancements() {
+    const time = performance.now();
+    const seasonType = getSeasonType();
+    
+    if (seasonType === 'spring' && weather === 'sunny') {
+      if (Math.random() < 0.00008) {
+        const sunX = width * 0.8;
+        const sunY = height * 0.15;
+        for (let i = 0; i < 10; i++) {
+          const angle = (Math.PI * 2 / 10) * i;
+          const gradient = ctx.createRadialGradient(
+            sunX, sunY, 0,
+            sunX + Math.cos(angle) * 120, sunY + Math.sin(angle) * 120, 0
+          );
+          gradient.addColorStop(0, 'rgba(255, 255, 200, 0.6)');
+          gradient.addColorStop(0.5, 'rgba(255, 255, 200, 0.3)');
+          gradient.addColorStop(1, 'rgba(255, 255, 200, 0)');
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.arc(sunX, sunY, 120, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+    
+    if (seasonType === 'winter' && weather === 'sunny') {
+      if (Math.random() < 0.00001) {
+        const moonX = width * 0.2;
+        const moonY = height * 0.2;
+        const moonRadius = 30;
+        const moonPhase = (time * 0.00001) % 1;
+        
+        ctx.fillStyle = `rgba(240, 240, 255, ${0.7 + Math.sin(moonPhase * Math.PI * 2) * 0.3})`;
+        ctx.beginPath();
+        ctx.arc(moonX, moonY, moonRadius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        if (moonPhase > 0.5) {
+          ctx.fillStyle = 'rgba(20, 20, 40, 0.85)';
+          ctx.beginPath();
+          ctx.ellipse(
+            moonX - (moonPhase - 0.5) * moonRadius * 2.2,
+            moonY,
+            moonRadius * (moonPhase - 0.5) * 2.2,
+            moonRadius,
+            0, 0, Math.PI * 2
+          );
+          ctx.fill();
+        }
+        
+        for (let i = 0; i < 5; i++) {
+          const starAngle = (Math.PI * 2 / 5) * i;
+          ctx.fillStyle = `rgba(255, 255, 255, ${0.3 + Math.sin(time * 0.001 + i) * 0.2})`;
+          ctx.beginPath();
+          ctx.arc(
+            moonX + Math.cos(starAngle) * moonRadius * 1.5,
+            moonY + Math.sin(starAngle) * moonRadius * 1.5,
+            2, 0, Math.PI * 2
+          );
+          ctx.fill();
+        }
+      }
+    }
+  }
+
+  function addAdvancedRainbowSystem() {
+    if (weather === 'sunny' && Math.random() < 0.00008) {
+      const rainbow = {
+        x: width * 0.35,
+        y: height * 0.45,
+        radius: 180,
+        life: 1,
+        phase: Math.random() * Math.PI * 2,
+        intensity: 0.5 + Math.random() * 0.5
+      };
+      
+      for (let i = 0; i < 7; i++) {
+        const hue = i * 30;
+        const alpha = (1 - i / 7) * 0.4 * rainbow.intensity * rainbow.life;
+        ctx.strokeStyle = `hsla(${hue}, 100%, 50%, ${alpha})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath();
+        ctx.arc(rainbow.x, rainbow.y, rainbow.radius + i * 6, 0, Math.PI);
+        ctx.stroke();
+      }
+      
+      for (let i = 0; i < 7; i++) {
+        const hue = i * 30;
+        const alpha = (1 - i / 7) * 0.2 * rainbow.intensity * rainbow.life;
+        ctx.strokeStyle = `hsla(${hue}, 100%, 50%, ${alpha})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(rainbow.x, rainbow.y, rainbow.radius + i * 6 + 3, 0, Math.PI);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function addAdvancedMeteorSystem() {
+    if (weather === 'sunny' && Math.random() < 0.000008) {
+      for (let i = 0; i < 4; i++) {
+        const meteor = {
+          x: Math.random() * width,
+          y: -15,
+          vx: (Math.random() - 0.5) * 0.35,
+          vy: 0.6 + Math.random() * 0.4,
+          life: 1,
+          brightness: 0.8 + Math.random() * 0.2,
+          trail: []
+        };
+        
+        for (let j = 0; j < 8; j++) {
+          meteor.trail.push({
+            x: meteor.x - j * 6,
+            y: meteor.y - j * 4,
+            life: 1 - j * 0.12,
+            size: 2 - j * 0.2
+          });
+        }
+        
+        sawdust.push(meteor);
+      }
+    }
+  }
+
+  function addAdvancedAuroraSystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'winter' && weather === 'sunny' && Math.random() < 0.000015) {
+      for (let i = 0; i < 25; i++) {
+        const y = height * (0.08 + Math.random() * 0.35);
+        const wave = Math.sin(i * 0.25) * 35 + Math.cos(i * 0.15) * 15;
+        const hue = 180 + i * 1.5 + Math.sin(i * 0.2) * 10;
+        const alpha = (0.4 - i * 0.01) * (0.6 + Math.sin(performance.now() * 0.0005) * 0.4);
+        ctx.strokeStyle = `hsla(${hue}, 100%, 65%, ${alpha})`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(i * (width / 25), y + wave);
+        ctx.lineTo((i + 1) * (width / 25), y + Math.sin((i + 1) * 0.25) * 35 + Math.cos((i + 1) * 0.15) * 15);
+        ctx.stroke();
+      }
+      
+      for (let i = 0; i < 15; i++) {
+        const y = height * (0.12 + Math.random() * 0.3);
+        const wave = Math.sin(i * 0.3) * 25;
+        const hue = 200 + i * 2;
+        const alpha = (0.3 - i * 0.015) * 0.5;
+        ctx.strokeStyle = `hsla(${hue}, 100%, 70%, ${alpha})`;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(i * (width / 15), y + wave);
+        ctx.lineTo((i + 1) * (width / 15), y + Math.sin((i + 1) * 0.3) * 25);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function addAdvancedLightningSystem() {
+    if (lightning) {
+      const branches = 4 + Math.floor(Math.random() * 5);
+      for (let i = 0; i < branches; i++) {
+        const angle = (Math.PI / branches) * i - Math.PI / 2 + (Math.random() - 0.5) * 0.3;
+        const length = 35 + Math.random() * 50;
+        const branchIntensity = lightning.intensity * lightning.life * (0.7 + Math.random() * 0.3);
+        ctx.strokeStyle = `rgba(220, 240, 255, ${branchIntensity * 0.7})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(lightning.x, lightning.y);
+        ctx.lineTo(
+          lightning.x + Math.cos(angle) * length,
+          lightning.y + Math.sin(angle) * length
+        );
+        ctx.stroke();
+        
+        if (Math.random() < 0.5) {
+          const subAngle = angle + (Math.random() - 0.5) * 0.5;
+          const subLength = length * (0.3 + Math.random() * 0.4);
+          ctx.strokeStyle = `rgba(200, 220, 255, ${branchIntensity * 0.5})`;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(
+            lightning.x + Math.cos(angle) * length * 0.6,
+            lightning.y + Math.sin(angle) * length * 0.6
+          );
+          ctx.lineTo(
+            lightning.x + Math.cos(angle) * length * 0.6 + Math.cos(subAngle) * subLength,
+            lightning.y + Math.sin(angle) * length * 0.6 + Math.sin(subAngle) * subLength
+          );
+          ctx.stroke();
+        }
+      }
+    }
+  }
+
+  function addAdvancedWindParticleSystem() {
+    if (Math.abs(wind) > 0.35) {
+      if (Math.random() < 0.0015) {
+        for (let i = 0; i < 3; i++) {
+          sawdust.push({
+            x: Math.random() * width,
+            y: height * (0.35 + Math.random() * 0.35),
+            vx: wind * 0.35 + (Math.random() - 0.5) * 0.25,
+            vy: (Math.random() - 0.5) * 0.15,
+            life: 0.7 + Math.random() * 0.5,
+            type: 'wind',
+            size: 1 + Math.random() * 2
+          });
+        }
+      }
+    }
+  }
+
+  function addAdvancedDustDevilSystem() {
+    if (weather === 'sunny' && Math.abs(wind) > 0.45 && Math.random() < 0.000015) {
+      const devil = {
+        x: Math.random() * width,
+        y: height - 45,
+        radius: 8,
+        life: 1,
+        rotation: 0,
+        speed: 0.1 + Math.random() * 0.15
+      };
+      
+      for (let i = 0; i < 25; i++) {
+        const angle = (Math.PI * 2 / 25) * i;
+        sawdust.push({
+          x: devil.x + Math.cos(angle) * devil.radius,
+          y: devil.y + Math.sin(angle) * devil.radius,
+          vx: Math.cos(angle) * 0.25,
+          vy: -0.35 - Math.random() * 0.25,
+          life: 0.6 + Math.random() * 0.6,
+          type: 'dust',
+          size: 1.5 + Math.random() * 2.5
+        });
+      }
+    }
+  }
+
+  function addAdvancedHailSystem() {
+    if (weather === 'stormy' && Math.random() < 0.00015) {
+      for (let i = 0; i < 8; i++) {
+        rainDrops.push({
+          x: Math.random() * width,
+          y: -15,
+          speed: 0.9 + Math.random() * 0.7,
+          length: 4 + Math.random() * 5,
+          size: 2.5 + Math.random() * 3.5,
+          angle: 0,
+          type: 'hail',
+          bounce: 0
+        });
+      }
+    }
+  }
+
+  function addAdvancedMistSystem() {
+    const seasonType = getSeasonType();
+    if ((seasonType === 'autumn' || seasonType === 'winter') && weather === 'cloudy' && Math.random() < 0.00008) {
+      for (let i = 0; i < 15; i++) {
+        sawdust.push({
+          x: Math.random() * width,
+          y: height - 65 + Math.random() * 50,
+          vx: (Math.random() - 0.5) * 0.015,
+          vy: -0.008 - Math.random() * 0.015,
+          life: 0.8 + Math.random() * 0.4,
+          type: 'mist',
+          size: 25 + Math.random() * 35,
+          opacity: 0.3 + Math.random() * 0.4
+        });
+      }
+    }
+  }
+
+  function addAdvancedSunbeamSystem() {
+    if (weather === 'sunny' && Math.random() < 0.00015) {
+      const sunX = width * 0.8;
+      const sunY = height * 0.15;
+      for (let i = 0; i < 4; i++) {
+        const angle = (Math.PI / 8) * (i - 1.5);
+        const gradient = ctx.createLinearGradient(
+          sunX, sunY,
+          sunX + Math.cos(angle) * 250,
+          sunY + Math.sin(angle) * 250
+        );
+        gradient.addColorStop(0, 'rgba(255, 255, 200, 0.5)');
+        gradient.addColorStop(0.3, 'rgba(255, 255, 200, 0.3)');
+        gradient.addColorStop(1, 'rgba(255, 255, 200, 0)');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.moveTo(sunX, sunY);
+        ctx.lineTo(sunX + Math.cos(angle) * 250, sunY + Math.sin(angle) * 250);
+        ctx.lineTo(sunX + Math.cos(angle) * 250 + 25, sunY + Math.sin(angle) * 250);
+        ctx.lineTo(sunX + 25, sunY);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+
+  function addAdvancedCloudShadowSystem() {
+    if (weather === 'cloudy' || weather === 'rainy' || weather === 'stormy') {
+      clouds.forEach((cloud) => {
+        const shadowY = height - 42;
+        const shadowX = cloud.x;
+        const shadowSize = 130 * cloud.scale * 0.85;
+        const shadowOpacity = cloud.opacity * 0.25;
+        
+        ctx.fillStyle = `rgba(0, 0, 0, ${shadowOpacity})`;
+        ctx.beginPath();
+        ctx.ellipse(shadowX, shadowY, shadowSize, shadowSize * 0.35, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = `rgba(0, 0, 0, ${shadowOpacity * 0.6})`;
+        ctx.beginPath();
+        ctx.ellipse(shadowX, shadowY, shadowSize * 0.7, shadowSize * 0.25, 0, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }
+  }
+
+  function addAdvancedReflectionSystem() {
+    puddles.forEach((puddle) => {
+      if (puddle.size > 18) {
+        const reflection = {
+          x: puddle.x,
+          y: puddle.y,
+          size: puddle.size * 0.65,
+          opacity: puddle.life * 0.35,
+          phase: puddle.phase || 0
+        };
+        
+        reflection.phase += 0.02;
+        puddle.phase = reflection.phase;
+        
+        ctx.save();
+        ctx.globalAlpha = reflection.opacity;
+        const gradient = ctx.createRadialGradient(
+          reflection.x, reflection.y, 0,
+          reflection.x, reflection.y, reflection.size
+        );
+        gradient.addColorStop(0, 'rgba(120, 170, 220, 0.5)');
+        gradient.addColorStop(0.5, 'rgba(100, 150, 200, 0.4)');
+        gradient.addColorStop(1, 'rgba(80, 120, 180, 0.2)');
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.ellipse(reflection.x, reflection.y, reflection.size, reflection.size * 0.25, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        
+        for (let i = 0; i < 3; i++) {
+          const rippleRadius = (reflection.phase + i * 0.8) % 3;
+          ctx.strokeStyle = `rgba(150, 180, 255, ${reflection.opacity * (1 - rippleRadius / 3) * 0.4})`;
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.ellipse(reflection.x, reflection.y, reflection.size * rippleRadius, reflection.size * rippleRadius * 0.25, 0, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+      }
+    });
+  }
+
+  function addAdvancedFrostPatternSystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'winter' && weather === 'snowy') {
+      branchSegments.forEach((segment) => {
+        if (segment.branch.hasSnow && Math.random() < 0.015) {
+          const pattern = {
+            x: (segment.x1 + segment.x2) / 2,
+            y: (segment.y1 + segment.y2) / 2,
+            size: 4 + Math.random() * 6,
+            life: 1,
+            complexity: 6 + Math.floor(Math.random() * 4)
+          };
+          
+          ctx.strokeStyle = `rgba(220, 240, 255, ${pattern.life * 0.7})`;
+          ctx.lineWidth = 0.6;
+          for (let i = 0; i < pattern.complexity; i++) {
+            const angle = (Math.PI * 2 / pattern.complexity) * i;
+            ctx.beginPath();
+            ctx.moveTo(pattern.x, pattern.y);
+            ctx.lineTo(
+              pattern.x + Math.cos(angle) * pattern.size,
+              pattern.y + Math.sin(angle) * pattern.size
+            );
+            ctx.stroke();
+          }
+          
+          for (let i = 0; i < pattern.complexity / 2; i++) {
+            const angle = (Math.PI * 2 / pattern.complexity) * i;
+            const midRadius = pattern.size * 0.5;
+            ctx.beginPath();
+            ctx.arc(
+              pattern.x + Math.cos(angle) * midRadius,
+              pattern.y + Math.sin(angle) * midRadius,
+              pattern.size * 0.3,
+              0, Math.PI * 2
+            );
+            ctx.stroke();
+          }
+        }
+      });
+    }
+  }
+
+  function addAdvancedIcicleSystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'winter' && weather === 'snowy') {
+      branchSegments.forEach((segment) => {
+        if (segment.branch.depth < 3 && Math.random() < 0.00015) {
+          const icicle = {
+            x: (segment.x1 + segment.x2) / 2,
+            y: (segment.y1 + segment.y2) / 2,
+            length: 6 + Math.random() * 12,
+            width: 1.5 + Math.random() * 2.5,
+            life: 1,
+            drip: 0
+          };
+          
+          icicle.drip += deltaMs * 0.0001;
+          
+          const gradient = ctx.createLinearGradient(icicle.x, icicle.y, icicle.x, icicle.y + icicle.length);
+          gradient.addColorStop(0, `rgba(200, 230, 255, ${icicle.life * 0.9})`);
+          gradient.addColorStop(0.5, `rgba(180, 220, 255, ${icicle.life * 0.85})`);
+          gradient.addColorStop(1, `rgba(160, 210, 255, ${icicle.life * 0.8})`);
+          ctx.fillStyle = gradient;
+          ctx.beginPath();
+          ctx.moveTo(icicle.x, icicle.y);
+          ctx.lineTo(icicle.x - icicle.width, icicle.y + icicle.length);
+          ctx.lineTo(icicle.x + icicle.width, icicle.y + icicle.length);
+          ctx.closePath();
+          ctx.fill();
+          
+          if (icicle.drip > 0.5) {
+            ctx.fillStyle = `rgba(200, 230, 255, ${icicle.life * 0.6})`;
+            ctx.beginPath();
+            ctx.arc(icicle.x, icicle.y + icicle.length, icicle.width * 0.8, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      });
+    }
+  }
+
+  function addAdvancedBarkTextureSystem() {
+    branchSegments.forEach((segment) => {
+      if (segment.branch.barkTexture && segment.branch.depth < 2) {
+        const texture = segment.branch.barkTexture;
+        const x = (segment.x1 + segment.x2) / 2;
+        const y = (segment.y1 + segment.y2) / 2;
+        
+        ctx.strokeStyle = `rgba(60, 40, 30, ${texture * 0.35})`;
+        ctx.lineWidth = 1.2;
+        for (let i = 0; i < 4; i++) {
+          ctx.beginPath();
+          ctx.moveTo(x - 6 + i * 4, y - 3);
+          ctx.lineTo(x - 6 + i * 4, y + 3);
+          ctx.stroke();
+        }
+        
+        ctx.strokeStyle = `rgba(50, 30, 20, ${texture * 0.25})`;
+        ctx.lineWidth = 0.8;
+        for (let i = 0; i < 3; i++) {
+          const offset = (i - 1) * 2;
+          ctx.beginPath();
+          ctx.moveTo(x - 5 + offset, y - 2);
+          ctx.quadraticCurveTo(x - 3 + offset, y, x - 5 + offset, y + 2);
+          ctx.stroke();
+        }
+      }
+    });
+  }
+
+  function addAdvancedLeafVeinSystem() {
+    const seasonType = getSeasonType();
+    if (seasonType !== 'winter') {
+      branchSegments.forEach((segment) => {
+        if (segment.branch.depth >= CONFIG.maxDepth - 1 && Math.random() < 0.015) {
+          const leafX = segment.x2;
+          const leafY = segment.y2;
+          
+          ctx.strokeStyle = 'rgba(100, 150, 100, 0.35)';
+          ctx.lineWidth = 0.6;
+          ctx.beginPath();
+          ctx.moveTo(leafX, leafY);
+          for (let i = 0; i < 4; i++) {
+            const angle = (Math.PI / 8) * (i - 1.5);
+            ctx.lineTo(
+              leafX + Math.cos(angle) * 10,
+              leafY + Math.sin(angle) * 10
+            );
+          }
+          ctx.stroke();
+          
+          ctx.strokeStyle = 'rgba(80, 130, 80, 0.25)';
+          ctx.lineWidth = 0.4;
+          for (let i = 0; i < 3; i++) {
+            const mainAngle = (Math.PI / 6) * (i - 1);
+            ctx.beginPath();
+            ctx.moveTo(leafX, leafY);
+            ctx.lineTo(
+              leafX + Math.cos(mainAngle) * 8,
+              leafY + Math.sin(mainAngle) * 8
+            );
+            for (let j = 0; j < 2; j++) {
+              const subAngle = mainAngle + (Math.PI / 12) * (j - 0.5);
+              ctx.moveTo(
+                leafX + Math.cos(mainAngle) * 5,
+                leafY + Math.sin(mainAngle) * 5
+              );
+              ctx.lineTo(
+                leafX + Math.cos(mainAngle) * 5 + Math.cos(subAngle) * 3,
+                leafY + Math.sin(mainAngle) * 5 + Math.sin(subAngle) * 3
+              );
+            }
+            ctx.stroke();
+          }
+        }
+      });
+    }
+  }
+
+  function addAdvancedRootSystem() {
+    if (growth > 0.35) {
+      const rootX = width / 2;
+      const rootY = height - 60;
+      const rootDepth = (growth - 0.35) * 35;
+      
+      ctx.strokeStyle = 'rgba(80, 60, 40, 0.45)';
+      ctx.lineWidth = 2.5;
+      for (let i = 0; i < 4; i++) {
+        const angle = (Math.PI / 8) * (i - 1.5);
+        ctx.beginPath();
+        ctx.moveTo(rootX, rootY);
+        ctx.quadraticCurveTo(
+          rootX + Math.cos(angle) * rootDepth * 0.4,
+          rootY + rootDepth * 0.4,
+          rootX + Math.cos(angle) * rootDepth * 0.7,
+          rootY + rootDepth * 0.7
+        );
+        ctx.quadraticCurveTo(
+          rootX + Math.cos(angle) * rootDepth * 0.85,
+          rootY + rootDepth * 0.85,
+          rootX + Math.cos(angle) * rootDepth,
+          rootY + rootDepth
+        );
+        ctx.stroke();
+        
+        if (growth > 0.6) {
+          const subAngle = angle + (Math.random() - 0.5) * 0.3;
+          ctx.beginPath();
+          ctx.moveTo(
+            rootX + Math.cos(angle) * rootDepth * 0.6,
+            rootY + rootDepth * 0.6
+          );
+          ctx.quadraticCurveTo(
+            rootX + Math.cos(angle) * rootDepth * 0.6 + Math.cos(subAngle) * rootDepth * 0.2,
+            rootY + rootDepth * 0.6 + rootDepth * 0.2,
+            rootX + Math.cos(angle) * rootDepth * 0.6 + Math.cos(subAngle) * rootDepth * 0.4,
+            rootY + rootDepth * 0.6 + rootDepth * 0.4
+          );
+          ctx.stroke();
+        }
+      }
+    }
+  }
+
+  function addAdvancedNestSystem() {
+    if (birdOnTree && Math.random() < 0.00015) {
+      const nest = {
+        x: birdOnTree.x,
+        y: birdOnTree.y + 6,
+        size: 9,
+        life: 1,
+        materials: 3 + Math.floor(Math.random() * 3)
+      };
+      
+      const gradient = ctx.createRadialGradient(nest.x, nest.y, 0, nest.x, nest.y, nest.size);
+      gradient.addColorStop(0, `rgba(139, 90, 43, ${nest.life * 0.7})`);
+      gradient.addColorStop(0.5, `rgba(120, 80, 40, ${nest.life * 0.6})`);
+      gradient.addColorStop(1, `rgba(100, 70, 30, ${nest.life * 0.5})`);
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.ellipse(nest.x, nest.y, nest.size, nest.size * 0.65, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = `rgba(100, 70, 30, ${nest.life * 0.9})`;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.ellipse(nest.x, nest.y, nest.size, nest.size * 0.65, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      
+      for (let i = 0; i < nest.materials; i++) {
+        const angle = (Math.PI * 2 / nest.materials) * i;
+        ctx.strokeStyle = `rgba(80, 60, 25, ${nest.life * 0.8})`;
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(nest.x, nest.y);
+        ctx.lineTo(
+          nest.x + Math.cos(angle) * nest.size * 0.8,
+          nest.y + Math.sin(angle) * nest.size * 0.5
+        );
+        ctx.stroke();
+      }
+    }
+  }
+
+  function addAdvancedSpiderWebSystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'autumn' && Math.random() < 0.000015) {
+      if (branchSegments.length > 0) {
+        const segment = branchSegments[Math.floor(Math.random() * branchSegments.length)];
+        const web = {
+          x: (segment.x1 + segment.x2) / 2,
+          y: (segment.y1 + segment.y2) / 2,
+          radius: 12 + Math.random() * 18,
+          life: 1,
+          strands: 8 + Math.floor(Math.random() * 4),
+          spirals: 4 + Math.floor(Math.random() * 3)
+        };
+        
+        ctx.strokeStyle = `rgba(255, 255, 255, ${web.life * 0.45})`;
+        ctx.lineWidth = 0.6;
+        for (let i = 0; i < web.strands; i++) {
+          const angle = (Math.PI * 2 / web.strands) * i;
+          ctx.beginPath();
+          ctx.moveTo(web.x, web.y);
+          ctx.lineTo(
+            web.x + Math.cos(angle) * web.radius,
+            web.y + Math.sin(angle) * web.radius
+          );
+          ctx.stroke();
+        }
+        
+        for (let i = 0; i < web.spirals; i++) {
+          const spiralRadius = web.radius * (i + 1) / (web.spirals + 1);
+          ctx.strokeStyle = `rgba(255, 255, 255, ${web.life * (0.4 - i * 0.05)})`;
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          ctx.arc(web.x, web.y, spiralRadius, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        
+        ctx.fillStyle = `rgba(200, 200, 200, ${web.life * 0.6})`;
+        ctx.beginPath();
+        ctx.arc(web.x, web.y, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function addAdvancedDandelionSeedSystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' && weather === 'sunny' && Math.random() < 0.00015) {
+      for (let i = 0; i < 8; i++) {
+        const seed = {
+          x: width * (0.25 + Math.random() * 0.5),
+          y: height - 42,
+          vx: (Math.random() - 0.5) * 0.18,
+          vy: -0.12 - Math.random() * 0.18,
+          life: 1,
+          rotation: Math.random() * Math.PI * 2,
+          rotationSpeed: (Math.random() - 0.5) * 0.05,
+          size: 2.5 + Math.random() * 3.5
+        };
+        
+        ctx.save();
+        ctx.translate(seed.x, seed.y);
+        ctx.rotate(seed.rotation);
+        ctx.fillStyle = `rgba(255, 255, 200, ${seed.life * 0.75})`;
+        ctx.beginPath();
+        ctx.arc(0, 0, seed.size * 0.3, 0, Math.PI * 2);
+        ctx.fill();
+        for (let j = 0; j < 10; j++) {
+          const angle = (Math.PI * 2 / 10) * j;
+          ctx.strokeStyle = `rgba(255, 255, 200, ${seed.life * 0.6})`;
+          ctx.lineWidth = 0.8;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(angle) * seed.size, Math.sin(angle) * seed.size);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+  }
+
+  function addAdvancedCaterpillarSystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' || seasonType === 'summer') {
+      if (Math.random() < 0.00008) {
+        if (branchSegments.length > 0) {
+          const segment = branchSegments[Math.floor(Math.random() * branchSegments.length)];
+          const caterpillar = {
+            x: (segment.x1 + segment.x2) / 2,
+            y: (segment.y1 + segment.y2) / 2,
+            length: 10 + Math.random() * 8,
+            segments: 5,
+            phase: Math.random() * Math.PI * 2,
+            life: 1,
+            color: Math.random() > 0.5 ? 'green' : 'brown'
+          };
+          
+          const color = caterpillar.color === 'green' ? 'rgba(100, 150, 50' : 'rgba(139, 90, 43';
+          ctx.strokeStyle = `${color}, ${caterpillar.life * 0.85})`;
+          ctx.lineWidth = 2.5;
+          ctx.beginPath();
+          for (let i = 0; i <= caterpillar.segments; i++) {
+            const t = i / caterpillar.segments;
+            const offsetX = Math.sin(caterpillar.phase + t * Math.PI * 2) * 2.5;
+            const offsetY = Math.cos(caterpillar.phase + t * Math.PI * 2) * 1.5;
+            const x = caterpillar.x + (i * caterpillar.length / caterpillar.segments) + offsetX;
+            const y = caterpillar.y + offsetY;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+          
+          for (let i = 0; i < caterpillar.segments; i++) {
+            const t = i / caterpillar.segments;
+            const offsetX = Math.sin(caterpillar.phase + t * Math.PI * 2) * 2.5;
+            const offsetY = Math.cos(caterpillar.phase + t * Math.PI * 2) * 1.5;
+            const x = caterpillar.x + (i * caterpillar.length / caterpillar.segments) + offsetX;
+            const y = caterpillar.y + offsetY;
+            ctx.fillStyle = `${color}, ${caterpillar.life * 0.9})`;
+            ctx.beginPath();
+            ctx.arc(x, y, 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+    }
+  }
+
+  function addAdvancedLadybugSystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' || seasonType === 'summer') {
+      if (Math.random() < 0.00005) {
+        if (branchSegments.length > 0) {
+          const segment = branchSegments[Math.floor(Math.random() * branchSegments.length)];
+          const ladybug = {
+            x: (segment.x1 + segment.x2) / 2,
+            y: (segment.y1 + segment.y2) / 2,
+            size: 2.5 + Math.random() * 2.5,
+            phase: Math.random() * Math.PI * 2,
+            life: 1,
+            spots: 3 + Math.floor(Math.random() * 4)
+          };
+          
+          ctx.fillStyle = `rgba(220, 50, 50, ${ladybug.life * 0.95})`;
+          ctx.beginPath();
+          ctx.arc(ladybug.x, ladybug.y, ladybug.size, 0, Math.PI * 2);
+          ctx.fill();
+          
+          ctx.strokeStyle = `rgba(0, 0, 0, ${ladybug.life * 0.8})`;
+          ctx.lineWidth = 0.5;
+          ctx.beginPath();
+          ctx.arc(ladybug.x, ladybug.y, ladybug.size, 0, Math.PI * 2);
+          ctx.stroke();
+          
+          ctx.beginPath();
+          ctx.moveTo(ladybug.x, ladybug.y - ladybug.size);
+          ctx.lineTo(ladybug.x, ladybug.y + ladybug.size);
+          ctx.stroke();
+          
+          ctx.fillStyle = 'rgba(0, 0, 0, 1)';
+          ctx.beginPath();
+          ctx.arc(ladybug.x, ladybug.y - ladybug.size * 0.3, ladybug.size * 0.25, 0, Math.PI * 2);
+          ctx.fill();
+          
+          for (let i = 0; i < ladybug.spots; i++) {
+            const angle = (Math.PI * 2 / ladybug.spots) * i;
+            const spotRadius = ladybug.size * 0.4;
+            ctx.beginPath();
+            ctx.arc(
+              ladybug.x + Math.cos(angle) * spotRadius * 0.6,
+              ladybug.y + Math.sin(angle) * spotRadius * 0.6,
+              ladybug.size * 0.2,
+              0, Math.PI * 2
+            );
+            ctx.fill();
+          }
+        }
+      }
+    }
+  }
+
+  function addAdvancedSnailSystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' && weather === 'rainy') {
+      if (Math.random() < 0.00003) {
+        const snail = {
+          x: width * (0.2 + Math.random() * 0.6),
+          y: height - 40,
+          speed: 0.025 + Math.random() * 0.035,
+          direction: Math.random() > 0.5 ? 1 : -1,
+          shellPhase: Math.random() * Math.PI * 2,
+          life: 1,
+          trail: []
+        };
+        
+        for (let i = 0; i < 3; i++) {
+          snail.trail.push({
+            x: snail.x - i * snail.direction * 2,
+            y: snail.y,
+            life: 1 - i * 0.3
+          });
+        }
+        
+        ctx.fillStyle = `rgba(200, 150, 100, ${snail.life * 0.85})`;
+        ctx.beginPath();
+        ctx.ellipse(snail.x, snail.y, 4.5, 2.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        snail.trail.forEach((trailPoint) => {
+          ctx.fillStyle = `rgba(200, 150, 100, ${snail.life * trailPoint.life * 0.4})`;
+          ctx.beginPath();
+          ctx.ellipse(trailPoint.x, trailPoint.y, 3, 1.5, 0, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        
+        const gradient = ctx.createRadialGradient(
+          snail.x + snail.direction * 3, snail.y, 0,
+          snail.x + snail.direction * 3, snail.y, 3.5
+        );
+        gradient.addColorStop(0, `rgba(150, 100, 50, ${snail.life * 0.95})`);
+        gradient.addColorStop(0.5, `rgba(120, 80, 40, ${snail.life * 0.9})`);
+        gradient.addColorStop(1, `rgba(100, 70, 30, ${snail.life * 0.85})`);
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(snail.x + snail.direction * 3, snail.y, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.strokeStyle = `rgba(100, 70, 30, ${snail.life * 0.9})`;
+        ctx.lineWidth = 1.2;
+        for (let i = 0; i < 4; i++) {
+          const angle = snail.shellPhase + (Math.PI * 2 / 4) * i;
+          ctx.beginPath();
+          ctx.arc(
+            snail.x + snail.direction * 3,
+            snail.y,
+            3.5,
+            angle, angle + Math.PI / 4
+          );
+          ctx.stroke();
+        }
+        
+        ctx.fillStyle = `rgba(255, 200, 150, ${snail.life * 0.9})`;
+        ctx.beginPath();
+        ctx.arc(snail.x + snail.direction * 5, snail.y - 1, 1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(snail.x + snail.direction * 5, snail.y + 1, 1, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function addAdvancedAntSystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' || seasonType === 'summer') {
+      if (Math.random() < 0.00015) {
+        const ant = {
+          x: width * (0.3 + Math.random() * 0.4),
+          y: height - 40,
+          speed: 0.12 + Math.random() * 0.18,
+          direction: Math.random() > 0.5 ? 1 : -1,
+          phase: Math.random() * Math.PI * 2,
+          life: 1,
+          segments: 3
+        };
+        
+        ctx.fillStyle = `rgba(50, 30, 20, ${ant.life * 0.95})`;
+        for (let i = 0; i < ant.segments; i++) {
+          const offset = (i - 1) * 2.5;
+          ctx.beginPath();
+          ctx.ellipse(ant.x + offset * ant.direction, ant.y, 2.5, 1.2, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        
+        ctx.beginPath();
+        ctx.arc(ant.x + ant.direction * 4, ant.y, 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.strokeStyle = `rgba(30, 20, 10, ${ant.life * 0.8})`;
+        ctx.lineWidth = 0.8;
+        for (let i = 0; i < 3; i++) {
+          const legAngle = (Math.PI / 6) * (i - 1);
+          ctx.beginPath();
+          ctx.moveTo(ant.x + (i - 1) * 2.5 * ant.direction, ant.y);
+          ctx.lineTo(
+            ant.x + (i - 1) * 2.5 * ant.direction + Math.cos(legAngle) * 3,
+            ant.y + Math.sin(legAngle) * 3
+          );
+          ctx.stroke();
+        }
+      }
+    }
+  }
+
+  function addAdvancedDragonflySystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'summer' && weather === 'sunny') {
+      if (Math.random() < 0.00008) {
+        const dragonfly = {
+          x: Math.random() * width,
+          y: height * (0.3 + Math.random() * 0.4),
+          targetX: Math.random() * width,
+          targetY: height * (0.3 + Math.random() * 0.4),
+          speed: 0.45 + Math.random() * 0.35,
+          wingPhase: Math.random() * Math.PI * 2,
+          life: 1,
+          color: ['blue', 'green', 'red'][Math.floor(Math.random() * 3)]
+        };
+        
+        ctx.save();
+        ctx.translate(dragonfly.x, dragonfly.y);
+        
+        const colors = {
+          blue: 'rgba(100, 150, 200',
+          green: 'rgba(100, 200, 100',
+          red: 'rgba(200, 100, 100'
+        };
+        const color = colors[dragonfly.color] || colors.blue;
+        const wingOpen = Math.abs(Math.sin(dragonfly.wingPhase));
+        
+        ctx.fillStyle = `${color}, ${dragonfly.life * 0.85})`;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 7, 2.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = `${color}, ${dragonfly.life * 0.5})`;
+        ctx.beginPath();
+        ctx.ellipse(-4, 0, 5 * wingOpen, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(4, 0, 5 * wingOpen, 9, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = `${color}, ${dragonfly.life * 0.4})`;
+        ctx.beginPath();
+        ctx.ellipse(-4, -2, 4 * wingOpen, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(4, -2, 4 * wingOpen, 7, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+        ctx.beginPath();
+        ctx.arc(-2, -1, 1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(2, -1, 1, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.restore();
+      }
+    }
+  }
+
+  function addAdvancedGrasshopperSystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'summer' && Math.random() < 0.00005) {
+      const grasshopper = {
+        x: width * (0.3 + Math.random() * 0.4),
+        y: height - 40,
+        jumpPhase: 0,
+        direction: Math.random() > 0.5 ? 1 : -1,
+        life: 1,
+        size: 4 + Math.random() * 3
+      };
+      
+      ctx.fillStyle = `rgba(100, 150, 50, ${grasshopper.life * 0.85})`;
+      ctx.beginPath();
+      ctx.ellipse(grasshopper.x, grasshopper.y, grasshopper.size, grasshopper.size * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.beginPath();
+      ctx.ellipse(grasshopper.x + grasshopper.direction * 3.5, grasshopper.y, grasshopper.size * 0.75, grasshopper.size * 0.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.strokeStyle = `rgba(80, 120, 40, ${grasshopper.life * 0.8})`;
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++) {
+        const legAngle = (Math.PI / 8) * (i - 1);
+        ctx.beginPath();
+        ctx.moveTo(grasshopper.x + (i - 1) * 2 * grasshopper.direction, grasshopper.y);
+        ctx.lineTo(
+          grasshopper.x + (i - 1) * 2 * grasshopper.direction + Math.cos(legAngle) * 4,
+          grasshopper.y + Math.sin(legAngle) * 4
+        );
+        ctx.stroke();
+      }
+    }
+  }
+
+  function addAdvancedCicadaSystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'summer' && Math.random() < 0.00003) {
+      if (branchSegments.length > 0) {
+        const segment = branchSegments[Math.floor(Math.random() * branchSegments.length)];
+        const cicada = {
+          x: (segment.x1 + segment.x2) / 2,
+          y: (segment.y1 + segment.y2) / 2,
+          size: 3.5 + Math.random() * 2.5,
+          phase: Math.random() * Math.PI * 2,
+          life: 1,
+          wingPhase: Math.random() * Math.PI * 2
+        };
+        
+        ctx.fillStyle = `rgba(150, 120, 80, ${cicada.life * 0.95})`;
+        ctx.beginPath();
+        ctx.ellipse(cicada.x, cicada.y, cicada.size, cicada.size * 0.65, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        const wingOpen = Math.abs(Math.sin(cicada.wingPhase));
+        ctx.fillStyle = `rgba(200, 200, 200, ${cicada.life * 0.65})`;
+        ctx.beginPath();
+        ctx.ellipse(cicada.x, cicada.y, cicada.size * 0.9, cicada.size * 0.45, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.strokeStyle = `rgba(180, 180, 180, ${cicada.life * 0.7})`;
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(cicada.x - cicada.size * 0.9, cicada.y);
+        ctx.lineTo(cicada.x + cicada.size * 0.9, cicada.y);
+        ctx.stroke();
+        
+        ctx.fillStyle = `rgba(100, 80, 60, ${cicada.life * 0.9})`;
+        ctx.beginPath();
+        ctx.arc(cicada.x, cicada.y - cicada.size * 0.3, cicada.size * 0.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  function addAdvancedMothSystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'summer' && weather !== 'rainy' && Math.random() < 0.00006) {
+      const moth = {
+        x: Math.random() * width,
+        y: height * (0.4 + Math.random() * 0.3),
+        targetX: Math.random() * width,
+        targetY: height * (0.4 + Math.random() * 0.3),
+        speed: 0.18 + Math.random() * 0.22,
+        wingPhase: Math.random() * Math.PI * 2,
+        life: 1,
+        color: Math.random() > 0.5 ? 'brown' : 'gray',
+        size: 4 + Math.random() * 3
+      };
+      
+      ctx.save();
+      ctx.translate(moth.x, moth.y);
+      
+      const color = moth.color === 'brown' ? 'rgba(139, 90, 43' : 'rgba(128, 128, 128';
+      const wingOpen = Math.abs(Math.sin(moth.wingPhase));
+      
+      ctx.fillStyle = `${color}, ${moth.life * 0.75})`;
+      ctx.beginPath();
+      ctx.ellipse(-4, 0, 6 * wingOpen, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(4, 0, 6 * wingOpen, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      if (moth.color === 'brown' && Math.random() < 0.3) {
+        ctx.fillStyle = `rgba(200, 150, 100, ${moth.life * 0.6})`;
+        ctx.beginPath();
+        ctx.ellipse(-4, 0, 4 * wingOpen, 2.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.ellipse(4, 0, 4 * wingOpen, 2.5, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      
+      ctx.fillStyle = `${color}, ${moth.life * 0.95})`;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 2.5, 4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      ctx.restore();
+    }
+  }
+
+  function addAdvancedFireflySystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'summer' && weather === 'sunny' && Math.random() < 0.00015) {
+      for (let i = 0; i < 3; i++) {
+        floatingLights.push({
+          x: Math.random(),
+          y: Math.random(),
+          scale: 0.7 + Math.random() * 1.5,
+          speed: 0.25 + Math.random() * 0.65,
+          hue: 80 + Math.random() * 45,
+          seed: Math.random() * 10,
+          pulsePhase: Math.random() * Math.PI * 2,
+          intensity: 0.7 + Math.random() * 0.3
+        });
+      }
+    }
+  }
+
+  function addAdvancedBeeSystem() {
+    const seasonType = getSeasonType();
+    if (seasonType === 'spring' || seasonType === 'summer') {
+      if (insects.length < 6 && Math.random() < 0.0008) {
+        const bee = spawnInsect();
+        bee.type = 'bee';
+        bee.size = 2.5 + Math.random() * 2.5;
+        bee.pollen = Math.random() > 0.5;
+        insects.push(bee);
+      }
+    }
   }
 
   scheduleGrowthPulse();
