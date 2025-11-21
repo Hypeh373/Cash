@@ -2,7 +2,8 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="mobile-web-app-capable" content="yes">
     <title>Ферма Цыплят</title>
     <style>
         * {
@@ -19,6 +20,11 @@
             justify-content: center;
             align-items: center;
             height: 100vh;
+            width: 100vw;
+            touch-action: none;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
         }
         
         #gameContainer {
@@ -36,39 +42,43 @@
         
         #ui {
             position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(255,255,255,0.9);
-            padding: 15px;
-            border-radius: 10px;
+            top: 5px;
+            left: 5px;
+            background: rgba(255,255,255,0.95);
+            padding: 8px;
+            border-radius: 8px;
             box-shadow: 0 4px 10px rgba(0,0,0,0.2);
             z-index: 10;
+            max-width: 45%;
         }
         
         #ui h2 {
-            margin-bottom: 10px;
+            margin-bottom: 5px;
             color: #333;
-        }
-        
-        .stat {
-            margin: 5px 0;
             font-size: 14px;
         }
         
+        .stat {
+            margin: 3px 0;
+            font-size: 11px;
+        }
+        
         button {
-            margin: 5px;
-            padding: 8px 15px;
+            margin: 3px;
+            padding: 6px 10px;
             background: #4CAF50;
             color: white;
             border: none;
             border-radius: 5px;
             cursor: pointer;
-            font-size: 14px;
-            transition: background 0.3s;
+            font-size: 11px;
+            transition: background 0.2s;
+            touch-action: manipulation;
         }
         
-        button:hover {
+        button:active {
             background: #45a049;
+            transform: scale(0.95);
         }
         
         button:disabled {
@@ -78,70 +88,122 @@
         
         #weatherInfo {
             position: absolute;
-            top: 10px;
-            right: 10px;
-            background: rgba(255,255,255,0.9);
-            padding: 10px;
-            border-radius: 10px;
-            font-size: 14px;
+            top: 5px;
+            right: 5px;
+            background: rgba(255,255,255,0.95);
+            padding: 8px;
+            border-radius: 8px;
+            font-size: 11px;
+            max-width: 45%;
         }
         
         #inventory {
             position: absolute;
-            bottom: 20px;
+            bottom: 10px;
             left: 50%;
             transform: translateX(-50%);
             display: flex;
-            gap: 5px;
-            background: rgba(0,0,0,0.7);
-            padding: 10px;
-            border-radius: 10px;
+            gap: 8px;
+            background: rgba(0,0,0,0.8);
+            padding: 8px;
+            border-radius: 12px;
             z-index: 10;
         }
         
         .inventory-slot {
-            width: 60px;
-            height: 60px;
-            background: rgba(139, 139, 139, 0.8);
+            width: 70px;
+            height: 70px;
+            background: rgba(139, 139, 139, 0.9);
             border: 3px solid #555;
-            border-radius: 5px;
+            border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 30px;
+            font-size: 35px;
             cursor: pointer;
             transition: all 0.2s;
             position: relative;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
         }
         
-        .inventory-slot:hover {
+        .inventory-slot:active {
             background: rgba(169, 169, 169, 0.9);
-            transform: scale(1.1);
+            transform: scale(0.9);
         }
         
         .inventory-slot.selected {
             border-color: #FFD700;
-            background: rgba(255, 215, 0, 0.3);
-            box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+            background: rgba(255, 215, 0, 0.4);
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.6);
         }
         
         .inventory-slot .slot-number {
             position: absolute;
-            top: 2px;
-            left: 2px;
-            font-size: 12px;
+            top: 3px;
+            left: 3px;
+            font-size: 14px;
             color: #FFF;
-            background: rgba(0,0,0,0.5);
-            padding: 2px 4px;
-            border-radius: 3px;
+            background: rgba(0,0,0,0.6);
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-weight: bold;
         }
         
         #cursorTool {
-            position: absolute;
+            position: fixed;
             pointer-events: none;
             z-index: 1000;
-            font-size: 40px;
+            font-size: 50px;
             transform: translate(-50%, -50%);
+            display: none;
+        }
+        
+        /* Мобильные стили */
+        @media (max-width: 768px) {
+            #ui {
+                padding: 6px;
+                max-width: 48%;
+            }
+            
+            #ui h2 {
+                font-size: 12px;
+            }
+            
+            .stat {
+                font-size: 10px;
+                margin: 2px 0;
+            }
+            
+            button {
+                padding: 5px 8px;
+                font-size: 10px;
+                margin: 2px;
+            }
+            
+            #weatherInfo {
+                padding: 6px;
+                font-size: 10px;
+                max-width: 48%;
+            }
+            
+            .inventory-slot {
+                width: 65px;
+                height: 65px;
+                font-size: 32px;
+            }
+            
+            .inventory-slot .slot-number {
+                font-size: 12px;
+            }
+        }
+        
+        @media (max-width: 480px) {
+            .inventory-slot {
+                width: 60px;
+                height: 60px;
+                font-size: 28px;
+            }
         }
     </style>
 </head>
@@ -183,13 +245,20 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         
+        // Определение мобильного устройства
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || 
+                        (window.innerWidth <= 768);
+        
         // Установка размера canvas
         function resizeCanvas() {
-            canvas.width = window.innerWidth - 40;
-            canvas.height = window.innerHeight - 40;
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
         }
         resizeCanvas();
         window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('orientationchange', () => {
+            setTimeout(resizeCanvas, 100);
+        });
         
         // Игровые переменные
         let chickens = [];
@@ -892,8 +961,9 @@
                 currentWeather === 'windy' ? 'Ветрено' : 'Снег';
             document.getElementById('windSpeed').textContent = Math.round(windSpeed);
             
-            // Эффекты погоды
-            if (currentWeather === 'rainy' && Math.random() < 0.3) {
+            // Эффекты погоды (меньше частиц на мобильных)
+            const weatherChance = isMobile ? 0.15 : 0.3;
+            if (currentWeather === 'rainy' && Math.random() < weatherChance) {
                 weatherParticles.push({
                     x: Math.random() * canvas.width,
                     y: -10,
@@ -902,7 +972,8 @@
                 });
             }
             
-            if (currentWeather === 'snowy' && Math.random() < 0.1) {
+            const snowChance = isMobile ? 0.05 : 0.1;
+            if (currentWeather === 'snowy' && Math.random() < snowChance) {
                 weatherParticles.push({
                     x: Math.random() * canvas.width,
                     y: -10,
@@ -910,6 +981,11 @@
                     vx: (Math.random() - 0.5) * 0.5,
                     type: 'snow'
                 });
+            }
+            
+            // Ограничение количества частиц погоды на мобильных
+            if (isMobile && weatherParticles.length > 50) {
+                weatherParticles = weatherParticles.slice(0, 50);
             }
         }
         
@@ -1007,12 +1083,22 @@
                 return p.life > 0 && p.x > 0 && p.x < canvas.width && p.y < canvas.height;
             });
             
+            // Ограничение частиц еды на мобильных
+            if (isMobile && foodParticles.length > 30) {
+                foodParticles = foodParticles.slice(-30);
+            }
+            
             // Обновление частиц воды
             waterParticles = waterParticles.filter(p => {
                 p.update();
                 p.draw();
                 return p.life > 0 && p.x > 0 && p.x < canvas.width && p.y < canvas.height;
             });
+            
+            // Ограничение частиц воды на мобильных
+            if (isMobile && waterParticles.length > 30) {
+                waterParticles = waterParticles.slice(-30);
+            }
             
             // Сбор еды цыплятами
             foodParticles.forEach((particle, pIdx) => {
@@ -1054,16 +1140,21 @@
             document.getElementById('foodCount').textContent = Math.floor(food);
             document.getElementById('waterCount').textContent = Math.floor(water);
             
-            // Обновление курсора с инструментом
-            const cursorTool = document.getElementById('cursorTool');
-            const toolIcons = {
-                'axe': '🪓',
-                'food': '🌾',
-                'water': '💧'
-            };
-            cursorTool.textContent = toolIcons[selectedTool];
-            cursorTool.style.left = mouseX + 'px';
-            cursorTool.style.top = mouseY + 'px';
+            // Обновление курсора с инструментом (только для десктопа)
+            if (!isMobile) {
+                const cursorTool = document.getElementById('cursorTool');
+                const toolIcons = {
+                    'axe': '🪓',
+                    'food': '🌾',
+                    'water': '💧'
+                };
+                cursorTool.textContent = toolIcons[selectedTool];
+                cursorTool.style.left = mouseX + 'px';
+                cursorTool.style.top = mouseY + 'px';
+                cursorTool.style.display = 'block';
+            } else {
+                document.getElementById('cursorTool').style.display = 'none';
+            }
             
             requestAnimationFrame(gameLoop);
         }
@@ -1076,18 +1167,24 @@
         // Запуск игры
         gameLoop();
         
-        // Отслеживание мыши
-        document.addEventListener('mousemove', (e) => {
-            mouseX = e.clientX;
-            mouseY = e.clientY;
-        });
-        
-        // Обработка клика с инструментом
-        canvas.addEventListener('click', (e) => {
+        // Функция получения координат касания/клика
+        function getEventCoordinates(e) {
             const rect = canvas.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            const y = e.clientY - rect.top;
-            
+            if (e.touches && e.touches.length > 0) {
+                return {
+                    x: e.touches[0].clientX - rect.left,
+                    y: e.touches[0].clientY - rect.top
+                };
+            } else {
+                return {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+            }
+        }
+        
+        // Обработка действия с инструментом
+        function handleToolAction(x, y) {
             if (selectedTool === 'axe') {
                 // Удар топором
                 let hitSomething = false;
@@ -1114,18 +1211,22 @@
                 }
             } else if (selectedTool === 'food') {
                 // Бросить еду
-                if (food >= 10) {
-                    food -= 10;
-                    for (let i = 0; i < 10; i++) {
+                const foodAmount = isMobile ? 5 : 10;
+                if (food >= foodAmount) {
+                    food -= foodAmount;
+                    const particleCount = isMobile ? 5 : 10;
+                    for (let i = 0; i < particleCount; i++) {
                         foodParticles.push(new FoodParticle(x, y));
                     }
                     playSound('chicken');
                 }
             } else if (selectedTool === 'water') {
                 // Полить водой
-                if (water >= 15) {
-                    water -= 15;
-                    for (let i = 0; i < 15; i++) {
+                const waterAmount = isMobile ? 10 : 15;
+                if (water >= waterAmount) {
+                    water -= waterAmount;
+                    const particleCount = isMobile ? 8 : 15;
+                    for (let i = 0; i < particleCount; i++) {
                         waterParticles.push(new WaterParticle(x, y));
                     }
                     playSound('splash');
@@ -1139,7 +1240,50 @@
                     });
                 }
             }
+        }
+        
+        // Отслеживание мыши (только для десктопа)
+        if (!isMobile) {
+            document.addEventListener('mousemove', (e) => {
+                mouseX = e.clientX;
+                mouseY = e.clientY;
+            });
+        }
+        
+        // Обработка клика/касания
+        canvas.addEventListener('click', (e) => {
+            if (!isMobile) {
+                const coords = getEventCoordinates(e);
+                handleToolAction(coords.x, coords.y);
+            }
         });
+        
+        // Обработка касаний для мобильных
+        let touchStartTime = 0;
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            touchStartTime = Date.now();
+            const coords = getEventCoordinates(e);
+            mouseX = coords.x + canvas.getBoundingClientRect().left;
+            mouseY = coords.y + canvas.getBoundingClientRect().top;
+        }, { passive: false });
+        
+        canvas.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            const touchDuration = Date.now() - touchStartTime;
+            // Обрабатываем только короткие касания (не свайпы)
+            if (touchDuration < 300) {
+                const coords = getEventCoordinates(e);
+                handleToolAction(coords.x, coords.y);
+            }
+        }, { passive: false });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const coords = getEventCoordinates(e);
+            mouseX = coords.x + canvas.getBoundingClientRect().left;
+            mouseY = coords.y + canvas.getBoundingClientRect().top;
+        }, { passive: false });
         
         // Звуки погоды
         setInterval(() => {
