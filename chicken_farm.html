@@ -85,6 +85,64 @@
             border-radius: 10px;
             font-size: 14px;
         }
+        
+        #inventory {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 5px;
+            background: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 10px;
+            z-index: 10;
+        }
+        
+        .inventory-slot {
+            width: 60px;
+            height: 60px;
+            background: rgba(139, 139, 139, 0.8);
+            border: 3px solid #555;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 30px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+        }
+        
+        .inventory-slot:hover {
+            background: rgba(169, 169, 169, 0.9);
+            transform: scale(1.1);
+        }
+        
+        .inventory-slot.selected {
+            border-color: #FFD700;
+            background: rgba(255, 215, 0, 0.3);
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.5);
+        }
+        
+        .inventory-slot .slot-number {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            font-size: 12px;
+            color: #FFF;
+            background: rgba(0,0,0,0.5);
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        
+        #cursorTool {
+            position: absolute;
+            pointer-events: none;
+            z-index: 1000;
+            font-size: 40px;
+            transform: translate(-50%, -50%);
+        }
     </style>
 </head>
 <body>
@@ -96,6 +154,7 @@
             <div class="stat">Собак: <span id="dogCount">0</span></div>
             <div class="stat">Яиц: <span id="eggCount">0</span></div>
             <div class="stat">Еда: <span id="foodCount">100</span></div>
+            <div class="stat">Вода: <span id="waterCount">100</span></div>
             <button onclick="feedAll()">🍽️ Кормить всех</button>
             <button onclick="addChicken()">➕ Добавить цыпленка</button>
         </div>
@@ -103,6 +162,21 @@
             <div>🌤️ Погода: <span id="weatherType">Солнечно</span></div>
             <div>💨 Ветер: <span id="windSpeed">0</span> км/ч</div>
         </div>
+        <div id="inventory">
+            <div class="inventory-slot selected" data-tool="axe" onclick="selectTool('axe')">
+                <span class="slot-number">1</span>
+                🪓
+            </div>
+            <div class="inventory-slot" data-tool="food" onclick="selectTool('food')">
+                <span class="slot-number">2</span>
+                🌾
+            </div>
+            <div class="inventory-slot" data-tool="water" onclick="selectTool('water')">
+                <span class="slot-number">3</span>
+                💧
+            </div>
+        </div>
+        <div id="cursorTool"></div>
     </div>
 
     <script>
@@ -124,8 +198,99 @@
         let wildAnimals = [];
         let foodParticles = [];
         let weatherParticles = [];
+        let waterParticles = [];
+        let fearZones = []; // Зоны страха от насилия
         let food = 100;
+        let water = 100;
         let frameCount = 0;
+        let selectedTool = 'axe';
+        let mouseX = 0;
+        let mouseY = 0;
+        
+        // Звуковая система
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        
+        function playSound(type, frequency = 440, duration = 0.1) {
+            try {
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                
+                switch(type) {
+                    case 'chicken':
+                        oscillator.type = 'sine';
+                        oscillator.frequency.setValueAtTime(800 + Math.random() * 200, audioContext.currentTime);
+                        gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+                        break;
+                    case 'dog':
+                        oscillator.type = 'sawtooth';
+                        oscillator.frequency.setValueAtTime(200 + Math.random() * 100, audioContext.currentTime);
+                        gainNode.gain.setValueAtTime(0.15, audioContext.currentTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+                        break;
+                    case 'attack':
+                        oscillator.type = 'square';
+                        oscillator.frequency.setValueAtTime(300, audioContext.currentTime);
+                        oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.1);
+                        gainNode.gain.setValueAtTime(0.2, audioContext.currentTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+                        break;
+                    case 'hit':
+                        oscillator.type = 'sawtooth';
+                        oscillator.frequency.setValueAtTime(150, audioContext.currentTime);
+                        oscillator.frequency.exponentialRampToValueAtTime(50, audioContext.currentTime + 0.05);
+                        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+                        break;
+                    case 'splash':
+                        for (let i = 0; i < 3; i++) {
+                            setTimeout(() => {
+                                const osc = audioContext.createOscillator();
+                                const gain = audioContext.createGain();
+                                osc.connect(gain);
+                                gain.connect(audioContext.destination);
+                                osc.type = 'sine';
+                                osc.frequency.setValueAtTime(400 + i * 100, audioContext.currentTime);
+                                gain.gain.setValueAtTime(0.1, audioContext.currentTime);
+                                gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+                                osc.start();
+                                osc.stop(audioContext.currentTime + 0.2);
+                            }, i * 20);
+                        }
+                        return;
+                    case 'weather':
+                        oscillator.type = 'sine';
+                        oscillator.frequency.setValueAtTime(500 + Math.random() * 200, audioContext.currentTime);
+                        gainNode.gain.setValueAtTime(0.05, audioContext.currentTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+                        break;
+                }
+                
+                oscillator.start();
+                oscillator.stop(audioContext.currentTime + duration);
+            } catch(e) {
+                // Игнорируем ошибки звука
+            }
+        }
+        
+        // Выбор инструмента
+        function selectTool(tool) {
+            selectedTool = tool;
+            document.querySelectorAll('.inventory-slot').forEach(slot => {
+                slot.classList.remove('selected');
+            });
+            document.querySelector(`[data-tool="${tool}"]`).classList.add('selected');
+        }
+        
+        // Горячие клавиши
+        document.addEventListener('keydown', (e) => {
+            if (e.key === '1') selectTool('axe');
+            if (e.key === '2') selectTool('food');
+            if (e.key === '3') selectTool('water');
+        });
         
         // Типы цыплят
         const chickenTypes = [
@@ -148,14 +313,6 @@
         let windSpeed = 0;
         const weatherTypes = ['sunny', 'rainy', 'windy', 'snowy'];
         
-        // Звуки (симуляция)
-        const sounds = {
-            chicken: { count: 0 },
-            dog: { count: 0 },
-            weather: { count: 0 },
-            attack: { count: 0 }
-        };
-        
         // Класс Цыпленок
         class Chicken {
             constructor(x, y, type = 0) {
@@ -174,26 +331,68 @@
                 this.animationFrame = 0;
                 this.lastEggTime = 0;
                 this.color = chickenTypes[this.type].color;
+                this.fear = 0; // Уровень страха (0-100)
+                this.fearDirection = 0; // Направление убегания
+                this.fearTime = 0; // Время в страхе
+                this.thirst = 100;
             }
             
             update() {
                 this.age++;
                 this.hunger -= 0.05;
+                this.thirst -= 0.03;
                 this.animationFrame++;
                 
-                // Рост
-                if (this.age > 500 && this.stage < 4 && this.hunger > 50) {
-                    this.stage++;
-                    this.size = 10 + this.stage * 3;
-                    sounds.chicken.count++;
+                // Обработка страха
+                if (this.fear > 0) {
+                    this.fear -= 0.5;
+                    this.fearTime++;
+                    
+                    // Убегание от источника страха
+                    const nearestFear = fearZones.reduce((closest, zone) => {
+                        const dist = Math.hypot(zone.x - this.x, zone.y - this.y);
+                        return dist < closest.dist ? { zone, dist } : closest;
+                    }, { zone: null, dist: Infinity });
+                    
+                    if (nearestFear.zone && nearestFear.dist < 300) {
+                        // Убегание от опасности
+                        const dx = this.x - nearestFear.zone.x;
+                        const dy = this.y - nearestFear.zone.y;
+                        const dist = Math.hypot(dx, dy);
+                        if (dist > 0) {
+                            this.vx = (dx / dist) * (this.speed * 2 + this.fear * 0.1);
+                            this.vy = (dy / dist) * (this.speed * 2 + this.fear * 0.1);
+                            this.fear = Math.min(100, this.fear + 2);
+                        }
+                    } else if (this.fearTime < 60) {
+                        // Продолжаем убегать в случайном направлении
+                        if (Math.random() < 0.1) {
+                            this.angle = Math.random() * Math.PI * 2;
+                            this.vx = Math.cos(this.angle) * this.speed * 2;
+                            this.vy = Math.sin(this.angle) * this.speed * 2;
+                        }
+                    }
+                    
+                    if (this.fearTime > 120) {
+                        this.fearTime = 0;
+                    }
+                } else {
+                    // Обычное движение
+                    if (Math.random() < 0.02) {
+                        this.angle = Math.random() * Math.PI * 2;
+                        this.vx = Math.cos(this.angle) * this.speed;
+                        this.vy = Math.sin(this.angle) * this.speed;
+                    }
                 }
                 
-                // Движение
-                if (Math.random() < 0.02) {
-                    this.angle = Math.random() * Math.PI * 2;
-                    this.vx = Math.cos(this.angle) * this.speed;
-                    this.vy = Math.sin(this.angle) * this.speed;
-                }
+                // Реакция на насилие поблизости
+                fearZones.forEach(zone => {
+                    const dist = Math.hypot(zone.x - this.x, zone.y - this.y);
+                    if (dist < 200 && zone.intensity > 0) {
+                        this.fear = Math.min(100, this.fear + zone.intensity * 0.5);
+                        playSound('chicken');
+                    }
+                });
                 
                 this.x += this.vx;
                 this.y += this.vy;
@@ -205,12 +404,25 @@
                 this.x = Math.max(0, Math.min(canvas.width, this.x));
                 this.y = Math.max(0, Math.min(canvas.height, this.y));
                 
+                // Замедление после страха
+                if (this.fear < 10 && this.fearTime === 0) {
+                    this.vx *= 0.95;
+                    this.vy *= 0.95;
+                }
+                
+                // Рост
+                if (this.age > 500 && this.stage < 4 && this.hunger > 50) {
+                    this.stage++;
+                    this.size = 10 + this.stage * 3;
+                    playSound('chicken');
+                }
+                
                 // Несение яиц (только взрослые курицы)
-                if (this.stage >= 3 && this.hunger > 60 && frameCount - this.lastEggTime > 1000) {
+                if (this.stage >= 3 && this.hunger > 60 && this.fear < 30 && frameCount - this.lastEggTime > 1000) {
                     if (Math.random() < 0.001) {
                         eggs.push(new Egg(this.x, this.y, this.type));
                         this.lastEggTime = frameCount;
-                        sounds.chicken.count++;
+                        playSound('chicken');
                     }
                 }
                 
@@ -224,6 +436,7 @@
                     if (nearestEnemy.dist < 200) {
                         const dogType = Math.random() < 0.5 ? 0 : (Math.random() < 0.3 ? 1 : (Math.random() < 0.1 ? 2 : 3));
                         dogs.push(new Dog(this.x, this.y, dogType));
+                        playSound('dog');
                     }
                 }
             }
@@ -271,12 +484,60 @@
                     ctx.fillText('🍽️', -5, -this.size - 10);
                 }
                 
+                // Индикатор страха
+                if (this.fear > 20) {
+                    ctx.fillStyle = '#FF0000';
+                    ctx.font = '12px Arial';
+                    ctx.fillText('😱', 5, -this.size - 15);
+                    // Визуальный эффект страха
+                    ctx.strokeStyle = 'rgba(255,0,0,0.5)';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, this.size + 5 + Math.sin(this.animationFrame * 0.5) * 3, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                
                 ctx.restore();
             }
             
             feed() {
                 this.hunger = Math.min(100, this.hunger + 30);
                 this.health = Math.min(100, this.health + 10);
+            }
+            
+            drink() {
+                this.thirst = Math.min(100, this.thirst + 40);
+                this.health = Math.min(100, this.health + 5);
+            }
+            
+            hit(damage = 20) {
+                this.health -= damage;
+                this.fear = Math.min(100, this.fear + 50);
+                this.fearTime = 0;
+                
+                // Создание зоны страха
+                fearZones.push({
+                    x: this.x,
+                    y: this.y,
+                    intensity: 80,
+                    life: 180
+                });
+                
+                // Распространение страха на других цыплят
+                chickens.forEach(chicken => {
+                    if (chicken !== this) {
+                        const dist = Math.hypot(chicken.x - this.x, chicken.y - this.y);
+                        if (dist < 150) {
+                            chicken.fear = Math.min(100, chicken.fear + 30);
+                            chicken.fearTime = 0;
+                        }
+                    }
+                });
+                
+                playSound('hit');
+                playSound('chicken');
+                
+                return this.health <= 0;
             }
         }
         
@@ -538,6 +799,36 @@
             }
         }
         
+        // Частицы воды
+        class WaterParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 3;
+                this.vy = (Math.random() - 0.5) * 3;
+                this.life = 120;
+                this.size = 4 + Math.random() * 3;
+            }
+            
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.15; // гравитация
+                this.vx *= 0.98; // сопротивление
+                this.life--;
+            }
+            
+            draw() {
+                ctx.fillStyle = 'rgba(135, 206, 250, 0.7)';
+                ctx.strokeStyle = 'rgba(30, 144, 255, 0.9)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+            }
+        }
+        
         // Функции
         function feedAll() {
             if (food < chickens.length * 5) return;
@@ -682,15 +973,42 @@
                 return p.y < canvas.height + 20;
             });
             
-            // Обновление еды
+            // Обновление зон страха
+            fearZones = fearZones.filter(zone => {
+                zone.life--;
+                zone.intensity *= 0.98;
+                
+                // Визуализация зоны страха
+                if (zone.intensity > 5) {
+                    ctx.strokeStyle = `rgba(255,0,0,${zone.intensity / 200})`;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(zone.x, zone.y, 150, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                
+                return zone.life > 0 && zone.intensity > 1;
+            });
+            
+            // Обновление еды и воды
             food += 0.1;
+            water += 0.05;
             
             // Обновление объектов
             chickens.forEach(chicken => chicken.update());
             dogs.forEach(dog => dog.update());
             eggs.forEach(egg => egg.update());
             wildAnimals.forEach(animal => animal.update());
+            
+            // Обновление частиц еды
             foodParticles = foodParticles.filter(p => {
+                p.update();
+                p.draw();
+                return p.life > 0 && p.x > 0 && p.x < canvas.width && p.y < canvas.height;
+            });
+            
+            // Обновление частиц воды
+            waterParticles = waterParticles.filter(p => {
                 p.update();
                 p.draw();
                 return p.life > 0 && p.x > 0 && p.x < canvas.width && p.y < canvas.height;
@@ -703,6 +1021,17 @@
                     if (dist < 15) {
                         chicken.feed();
                         foodParticles.splice(pIdx, 1);
+                    }
+                });
+            });
+            
+            // Сбор воды цыплятами
+            waterParticles.forEach((particle, pIdx) => {
+                chickens.forEach(chicken => {
+                    const dist = Math.hypot(chicken.x - particle.x, chicken.y - particle.y);
+                    if (dist < 15) {
+                        chicken.drink();
+                        waterParticles.splice(pIdx, 1);
                     }
                 });
             });
@@ -723,17 +1052,18 @@
             document.getElementById('dogCount').textContent = dogs.length;
             document.getElementById('eggCount').textContent = eggs.length;
             document.getElementById('foodCount').textContent = Math.floor(food);
+            document.getElementById('waterCount').textContent = Math.floor(water);
             
-            // Звуки (симуляция через консоль)
-            if (sounds.chicken.count > 0) {
-                sounds.chicken.count = 0;
-            }
-            if (sounds.dog.count > 0) {
-                sounds.dog.count = 0;
-            }
-            if (sounds.attack.count > 0) {
-                sounds.attack.count = 0;
-            }
+            // Обновление курсора с инструментом
+            const cursorTool = document.getElementById('cursorTool');
+            const toolIcons = {
+                'axe': '🪓',
+                'food': '🌾',
+                'water': '💧'
+            };
+            cursorTool.textContent = toolIcons[selectedTool];
+            cursorTool.style.left = mouseX + 'px';
+            cursorTool.style.top = mouseY + 'px';
             
             requestAnimationFrame(gameLoop);
         }
@@ -746,19 +1076,77 @@
         // Запуск игры
         gameLoop();
         
-        // Автокормление при клике
+        // Отслеживание мыши
+        document.addEventListener('mousemove', (e) => {
+            mouseX = e.clientX;
+            mouseY = e.clientY;
+        });
+        
+        // Обработка клика с инструментом
         canvas.addEventListener('click', (e) => {
             const rect = canvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             
-            if (food >= 10) {
-                food -= 10;
-                for (let i = 0; i < 10; i++) {
-                    foodParticles.push(new FoodParticle(x, y));
+            if (selectedTool === 'axe') {
+                // Удар топором
+                let hitSomething = false;
+                chickens.forEach((chicken, index) => {
+                    const dist = Math.hypot(chicken.x - x, chicken.y - y);
+                    if (dist < 30) {
+                        if (chicken.hit(25)) {
+                            chickens.splice(index, 1);
+                            playSound('hit');
+                        }
+                        hitSomething = true;
+                    }
+                });
+                
+                if (!hitSomething) {
+                    // Создание зоны страха даже при промахе
+                    fearZones.push({
+                        x: x,
+                        y: y,
+                        intensity: 40,
+                        life: 60
+                    });
+                    playSound('hit');
+                }
+            } else if (selectedTool === 'food') {
+                // Бросить еду
+                if (food >= 10) {
+                    food -= 10;
+                    for (let i = 0; i < 10; i++) {
+                        foodParticles.push(new FoodParticle(x, y));
+                    }
+                    playSound('chicken');
+                }
+            } else if (selectedTool === 'water') {
+                // Полить водой
+                if (water >= 15) {
+                    water -= 15;
+                    for (let i = 0; i < 15; i++) {
+                        waterParticles.push(new WaterParticle(x, y));
+                    }
+                    playSound('splash');
+                    
+                    // Поение цыплят поблизости
+                    chickens.forEach(chicken => {
+                        const dist = Math.hypot(chicken.x - x, chicken.y - y);
+                        if (dist < 50) {
+                            chicken.drink();
+                        }
+                    });
                 }
             }
         });
+        
+        // Звуки погоды
+        setInterval(() => {
+            if (currentWeather === 'rainy' && Math.random() < 0.3) {
+                playSound('weather');
+            }
+        }, 2000);
     </script>
 </body>
 </html>
