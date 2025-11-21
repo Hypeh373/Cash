@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ферма Цыплят</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #87CEEB 0%, #98D8C8 100%);
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        
+        #gameContainer {
+            position: relative;
+            border: 4px solid #8B4513;
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            background: #90EE90;
+        }
+        
+        #gameCanvas {
+            display: block;
+            background: linear-gradient(to bottom, #87CEEB 0%, #90EE90 50%, #8B7355 100%);
+        }
+        
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(255,255,255,0.9);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            z-index: 10;
+        }
+        
+        #ui h2 {
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .stat {
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        
+        button {
+            margin: 5px;
+            padding: 8px 15px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: #45a049;
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        #weatherInfo {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(255,255,255,0.9);
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas"></canvas>
+        <div id="ui">
+            <h2>🐔 Ферма</h2>
+            <div class="stat">Цыплят: <span id="chickenCount">0</span></div>
+            <div class="stat">Собак: <span id="dogCount">0</span></div>
+            <div class="stat">Яиц: <span id="eggCount">0</span></div>
+            <div class="stat">Еда: <span id="foodCount">100</span></div>
+            <button onclick="feedAll()">🍽️ Кормить всех</button>
+            <button onclick="addChicken()">➕ Добавить цыпленка</button>
+        </div>
+        <div id="weatherInfo">
+            <div>🌤️ Погода: <span id="weatherType">Солнечно</span></div>
+            <div>💨 Ветер: <span id="windSpeed">0</span> км/ч</div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Установка размера canvas
+        function resizeCanvas() {
+            canvas.width = window.innerWidth - 40;
+            canvas.height = window.innerHeight - 40;
+        }
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+        
+        // Игровые переменные
+        let chickens = [];
+        let dogs = [];
+        let eggs = [];
+        let wildAnimals = [];
+        let foodParticles = [];
+        let weatherParticles = [];
+        let food = 100;
+        let frameCount = 0;
+        
+        // Типы цыплят
+        const chickenTypes = [
+            { name: 'Обычный', color: '#FFD700', rarity: 'common', price: 10 },
+            { name: 'Золотой', color: '#FFA500', rarity: 'rare', price: 50 },
+            { name: 'Радужный', color: '#FF1493', rarity: 'epic', price: 150 },
+            { name: 'Кристальный', color: '#00CED1', rarity: 'legendary', price: 500 }
+        ];
+        
+        // Типы собак
+        const dogTypes = [
+            { name: 'Дворняжка', strength: 1, speed: 2, rarity: 'common', color: '#8B4513' },
+            { name: 'Овчарка', strength: 3, speed: 3, rarity: 'rare', color: '#654321' },
+            { name: 'Волкодав', strength: 5, speed: 4, rarity: 'epic', color: '#2F4F4F' },
+            { name: 'Альфа', strength: 10, speed: 5, rarity: 'legendary', color: '#000000' }
+        ];
+        
+        // Погода
+        let currentWeather = 'sunny';
+        let windSpeed = 0;
+        const weatherTypes = ['sunny', 'rainy', 'windy', 'snowy'];
+        
+        // Звуки (симуляция)
+        const sounds = {
+            chicken: { count: 0 },
+            dog: { count: 0 },
+            weather: { count: 0 },
+            attack: { count: 0 }
+        };
+        
+        // Класс Цыпленок
+        class Chicken {
+            constructor(x, y, type = 0) {
+                this.x = x || Math.random() * canvas.width;
+                this.y = y || Math.random() * canvas.height;
+                this.type = type;
+                this.stage = 0; // 0-4 стадии роста
+                this.size = 10 + this.stage * 3;
+                this.hunger = 100;
+                this.health = 100;
+                this.age = 0;
+                this.speed = 1 + Math.random();
+                this.angle = Math.random() * Math.PI * 2;
+                this.vx = Math.cos(this.angle) * this.speed;
+                this.vy = Math.sin(this.angle) * this.speed;
+                this.animationFrame = 0;
+                this.lastEggTime = 0;
+                this.color = chickenTypes[this.type].color;
+            }
+            
+            update() {
+                this.age++;
+                this.hunger -= 0.05;
+                this.animationFrame++;
+                
+                // Рост
+                if (this.age > 500 && this.stage < 4 && this.hunger > 50) {
+                    this.stage++;
+                    this.size = 10 + this.stage * 3;
+                    sounds.chicken.count++;
+                }
+                
+                // Движение
+                if (Math.random() < 0.02) {
+                    this.angle = Math.random() * Math.PI * 2;
+                    this.vx = Math.cos(this.angle) * this.speed;
+                    this.vy = Math.sin(this.angle) * this.speed;
+                }
+                
+                this.x += this.vx;
+                this.y += this.vy;
+                
+                // Границы
+                if (this.x < 0 || this.x > canvas.width) this.vx *= -1;
+                if (this.y < 0 || this.y > canvas.height) this.vy *= -1;
+                
+                this.x = Math.max(0, Math.min(canvas.width, this.x));
+                this.y = Math.max(0, Math.min(canvas.height, this.y));
+                
+                // Несение яиц (только взрослые курицы)
+                if (this.stage >= 3 && this.hunger > 60 && frameCount - this.lastEggTime > 1000) {
+                    if (Math.random() < 0.001) {
+                        eggs.push(new Egg(this.x, this.y, this.type));
+                        this.lastEggTime = frameCount;
+                        sounds.chicken.count++;
+                    }
+                }
+                
+                // Найм собаки при опасности
+                if (wildAnimals.length > 0 && dogs.length < chickens.length / 3 && Math.random() < 0.0001) {
+                    const nearestEnemy = wildAnimals.reduce((closest, animal) => {
+                        const dist = Math.hypot(animal.x - this.x, animal.y - this.y);
+                        return dist < closest.dist ? { animal, dist } : closest;
+                    }, { animal: null, dist: Infinity });
+                    
+                    if (nearestEnemy.dist < 200) {
+                        const dogType = Math.random() < 0.5 ? 0 : (Math.random() < 0.3 ? 1 : (Math.random() < 0.1 ? 2 : 3));
+                        dogs.push(new Dog(this.x, this.y, dogType));
+                    }
+                }
+            }
+            
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.animationFrame * 0.1);
+                
+                // Тело
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.arc(0, 0, this.size, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Глаза
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(-this.size * 0.3, -this.size * 0.2, 2, 0, Math.PI * 2);
+                ctx.arc(this.size * 0.3, -this.size * 0.2, 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Клюв
+                ctx.fillStyle = '#FF6347';
+                ctx.beginPath();
+                ctx.moveTo(0, this.size * 0.5);
+                ctx.lineTo(-this.size * 0.3, this.size * 0.7);
+                ctx.lineTo(this.size * 0.3, this.size * 0.7);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Крылья (анимация)
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = 0.7;
+                ctx.beginPath();
+                ctx.ellipse(-this.size * 0.6, 0, this.size * 0.4, this.size * 0.6, Math.sin(this.animationFrame * 0.2) * 0.3, 0, Math.PI * 2);
+                ctx.ellipse(this.size * 0.6, 0, this.size * 0.4, this.size * 0.6, -Math.sin(this.animationFrame * 0.2) * 0.3, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+                
+                // Индикатор голода
+                if (this.hunger < 50) {
+                    ctx.fillStyle = '#FF0000';
+                    ctx.font = '10px Arial';
+                    ctx.fillText('🍽️', -5, -this.size - 10);
+                }
+                
+                ctx.restore();
+            }
+            
+            feed() {
+                this.hunger = Math.min(100, this.hunger + 30);
+                this.health = Math.min(100, this.health + 10);
+            }
+        }
+        
+        // Класс Яйцо
+        class Egg {
+            constructor(x, y, type = 0) {
+                this.x = x;
+                this.y = y;
+                this.type = type;
+                this.age = 0;
+                this.size = 8;
+            }
+            
+            update() {
+                this.age++;
+                if (this.age > 600 && Math.random() < 0.01) {
+                    const index = eggs.indexOf(this);
+                    if (index > -1) {
+                        eggs.splice(index, 1);
+                        chickens.push(new Chicken(this.x, this.y, this.type));
+                        sounds.chicken.count++;
+                    }
+                }
+            }
+            
+            draw() {
+                ctx.fillStyle = '#FFF';
+                ctx.strokeStyle = '#000';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.ellipse(this.x, this.y, this.size, this.size * 1.2, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+            }
+        }
+        
+        // Класс Собака
+        class Dog {
+            constructor(x, y, type = 0) {
+                this.x = x;
+                this.y = y;
+                this.type = type;
+                this.strength = dogTypes[type].strength;
+                this.speed = dogTypes[type].speed;
+                this.health = 100;
+                this.target = null;
+                this.animationFrame = 0;
+                this.color = dogTypes[type].color;
+            }
+            
+            update() {
+                this.animationFrame++;
+                
+                // Поиск ближайшего врага
+                if (wildAnimals.length > 0) {
+                    this.target = wildAnimals.reduce((closest, animal) => {
+                        const dist = Math.hypot(animal.x - this.x, animal.y - this.y);
+                        return dist < closest.dist ? { animal, dist } : closest;
+                    }, { animal: null, dist: Infinity }).animal;
+                    
+                    if (this.target) {
+                        const dx = this.target.x - this.x;
+                        const dy = this.target.y - this.y;
+                        const dist = Math.hypot(dx, dy);
+                        
+                        if (dist > 0) {
+                            this.x += (dx / dist) * this.speed;
+                            this.y += (dy / dist) * this.speed;
+                            
+                            // Атака
+                            if (dist < 20) {
+                                this.target.health -= this.strength;
+                                sounds.attack.count++;
+                                if (this.target.health <= 0) {
+                                    const index = wildAnimals.indexOf(this.target);
+                                    if (index > -1) wildAnimals.splice(index, 1);
+                                    this.target = null;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Патрулирование
+                if (!this.target) {
+                    this.x += (Math.cos(this.animationFrame * 0.05) * this.speed * 0.5);
+                    this.y += (Math.sin(this.animationFrame * 0.05) * this.speed * 0.5);
+                }
+                
+                // Границы
+                this.x = Math.max(0, Math.min(canvas.width, this.x));
+                this.y = Math.max(0, Math.min(canvas.height, this.y));
+            }
+            
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                
+                // Тело
+                ctx.fillStyle = this.color;
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 15, 10, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Голова
+                ctx.beginPath();
+                ctx.arc(12, -5, 8, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Уши
+                ctx.beginPath();
+                ctx.moveTo(15, -10);
+                ctx.lineTo(20, -15);
+                ctx.lineTo(18, -12);
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.beginPath();
+                ctx.moveTo(15, -8);
+                ctx.lineTo(20, -13);
+                ctx.lineTo(18, -10);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Глаза
+                ctx.fillStyle = '#FFF';
+                ctx.beginPath();
+                ctx.arc(14, -6, 2, 0, Math.PI * 2);
+                ctx.arc(16, -6, 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(14, -6, 1, 0, Math.PI * 2);
+                ctx.arc(16, -6, 1, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Хвост (анимация)
+                ctx.strokeStyle = this.color;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(-15, 0);
+                ctx.quadraticCurveTo(-20, -10 + Math.sin(this.animationFrame * 0.3) * 5, -25, -5);
+                ctx.stroke();
+                
+                ctx.restore();
+            }
+        }
+        
+        // Класс Дикое животное
+        class WildAnimal {
+            constructor() {
+                this.x = Math.random() < 0.5 ? -50 : canvas.width + 50;
+                this.y = Math.random() * canvas.height;
+                this.speed = 1 + Math.random() * 2;
+                this.health = 30;
+                this.target = null;
+                this.animationFrame = 0;
+                this.type = Math.random() < 0.7 ? 'fox' : 'wolf';
+            }
+            
+            update() {
+                this.animationFrame++;
+                
+                // Поиск ближайшего цыпленка
+                if (chickens.length > 0) {
+                    this.target = chickens.reduce((closest, chicken) => {
+                        const dist = Math.hypot(chicken.x - this.x, chicken.y - this.y);
+                        return dist < closest.dist ? { chicken, dist } : closest;
+                    }, { chicken: null, dist: Infinity }).chicken;
+                    
+                    if (this.target) {
+                        const dx = this.target.x - this.x;
+                        const dy = this.target.y - this.y;
+                        const dist = Math.hypot(dx, dy);
+                        
+                        if (dist > 0) {
+                            this.x += (dx / dist) * this.speed;
+                            this.y += (dy / dist) * this.speed;
+                            
+                            // Атака
+                            if (dist < 15) {
+                                this.target.health -= 5;
+                                sounds.attack.count++;
+                                if (this.target.health <= 0) {
+                                    const index = chickens.indexOf(this.target);
+                                    if (index > -1) chickens.splice(index, 1);
+                                    this.target = null;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Удаление если далеко
+                if (this.x < -100 || this.x > canvas.width + 100) {
+                    const index = wildAnimals.indexOf(this);
+                    if (index > -1) wildAnimals.splice(index, 1);
+                }
+            }
+            
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                
+                ctx.fillStyle = this.type === 'fox' ? '#FF8C00' : '#696969';
+                
+                // Тело
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 12, 8, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Голова
+                ctx.beginPath();
+                ctx.arc(10, -3, 7, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Уши
+                ctx.beginPath();
+                ctx.moveTo(12, -8);
+                ctx.lineTo(15, -12);
+                ctx.lineTo(13, -10);
+                ctx.closePath();
+                ctx.fill();
+                
+                // Глаза
+                ctx.fillStyle = '#FF0000';
+                ctx.beginPath();
+                ctx.arc(11, -4, 2, 0, Math.PI * 2);
+                ctx.arc(13, -4, 2, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.restore();
+            }
+        }
+        
+        // Частицы еды
+        class FoodParticle {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.vy = (Math.random() - 0.5) * 2;
+                this.life = 100;
+            }
+            
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                this.vy += 0.1; // гравитация
+                this.life--;
+            }
+            
+            draw() {
+                ctx.fillStyle = '#8B4513';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, 3, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+        
+        // Функции
+        function feedAll() {
+            if (food < chickens.length * 5) return;
+            food -= chickens.length * 5;
+            chickens.forEach(chicken => {
+                chicken.feed();
+                // Создание частиц еды
+                for (let i = 0; i < 5; i++) {
+                    foodParticles.push(new FoodParticle(
+                        chicken.x + (Math.random() - 0.5) * 20,
+                        chicken.y + (Math.random() - 0.5) * 20
+                    ));
+                }
+            });
+            sounds.chicken.count++;
+        }
+        
+        function addChicken() {
+            const type = Math.random() < 0.6 ? 0 : (Math.random() < 0.3 ? 1 : (Math.random() < 0.1 ? 2 : 3));
+            chickens.push(new Chicken(
+                Math.random() * canvas.width,
+                Math.random() * canvas.height,
+                type
+            ));
+        }
+        
+        // Рисование солнца
+        function drawSun() {
+            const sunX = canvas.width - 100;
+            const sunY = 100;
+            const sunSize = 40;
+            
+            // Лучи
+            ctx.strokeStyle = '#FFD700';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 8; i++) {
+                const angle = (i / 8) * Math.PI * 2 + frameCount * 0.01;
+                ctx.beginPath();
+                ctx.moveTo(sunX + Math.cos(angle) * sunSize, sunY + Math.sin(angle) * sunSize);
+                ctx.lineTo(sunX + Math.cos(angle) * (sunSize + 15), sunY + Math.sin(angle) * (sunSize + 15));
+                ctx.stroke();
+            }
+            
+            // Солнце
+            ctx.fillStyle = '#FFD700';
+            ctx.beginPath();
+            ctx.arc(sunX, sunY, sunSize, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Погода
+        function updateWeather() {
+            if (frameCount % 1800 === 0) {
+                currentWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
+                windSpeed = Math.random() * 20;
+            }
+            
+            document.getElementById('weatherType').textContent = 
+                currentWeather === 'sunny' ? 'Солнечно' :
+                currentWeather === 'rainy' ? 'Дождь' :
+                currentWeather === 'windy' ? 'Ветрено' : 'Снег';
+            document.getElementById('windSpeed').textContent = Math.round(windSpeed);
+            
+            // Эффекты погоды
+            if (currentWeather === 'rainy' && Math.random() < 0.3) {
+                weatherParticles.push({
+                    x: Math.random() * canvas.width,
+                    y: -10,
+                    vy: 3 + Math.random() * 2,
+                    type: 'rain'
+                });
+            }
+            
+            if (currentWeather === 'snowy' && Math.random() < 0.1) {
+                weatherParticles.push({
+                    x: Math.random() * canvas.width,
+                    y: -10,
+                    vy: 1 + Math.random(),
+                    vx: (Math.random() - 0.5) * 0.5,
+                    type: 'snow'
+                });
+            }
+        }
+        
+        // Главный цикл игры
+        function gameLoop() {
+            frameCount++;
+            
+            // Очистка canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Фон с градиентом
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            if (currentWeather === 'sunny') {
+                gradient.addColorStop(0, '#87CEEB');
+                gradient.addColorStop(0.5, '#90EE90');
+                gradient.addColorStop(1, '#8B7355');
+            } else if (currentWeather === 'rainy') {
+                gradient.addColorStop(0, '#708090');
+                gradient.addColorStop(0.5, '#778899');
+                gradient.addColorStop(1, '#696969');
+            } else if (currentWeather === 'snowy') {
+                gradient.addColorStop(0, '#E0E0E0');
+                gradient.addColorStop(0.5, '#F5F5F5');
+                gradient.addColorStop(1, '#FFFFFF');
+            } else {
+                gradient.addColorStop(0, '#B0C4DE');
+                gradient.addColorStop(0.5, '#98D8C8');
+                gradient.addColorStop(1, '#8B7355');
+            }
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Солнце
+            if (currentWeather === 'sunny') {
+                drawSun();
+            }
+            
+            // Погода
+            updateWeather();
+            
+            // Обновление частиц погоды
+            weatherParticles = weatherParticles.filter(p => {
+                p.y += p.vy;
+                if (p.vx) p.x += p.vx;
+                p.x += windSpeed * 0.1;
+                
+                if (p.type === 'rain') {
+                    ctx.strokeStyle = '#4169E1';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(p.x, p.y);
+                    ctx.lineTo(p.x, p.y + 10);
+                    ctx.stroke();
+                } else if (p.type === 'snow') {
+                    ctx.fillStyle = '#FFF';
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                
+                return p.y < canvas.height + 20;
+            });
+            
+            // Обновление еды
+            food += 0.1;
+            
+            // Обновление объектов
+            chickens.forEach(chicken => chicken.update());
+            dogs.forEach(dog => dog.update());
+            eggs.forEach(egg => egg.update());
+            wildAnimals.forEach(animal => animal.update());
+            foodParticles = foodParticles.filter(p => {
+                p.update();
+                p.draw();
+                return p.life > 0 && p.x > 0 && p.x < canvas.width && p.y < canvas.height;
+            });
+            
+            // Сбор еды цыплятами
+            foodParticles.forEach((particle, pIdx) => {
+                chickens.forEach(chicken => {
+                    const dist = Math.hypot(chicken.x - particle.x, chicken.y - particle.y);
+                    if (dist < 15) {
+                        chicken.feed();
+                        foodParticles.splice(pIdx, 1);
+                    }
+                });
+            });
+            
+            // Появление диких животных
+            if (Math.random() < 0.001 && wildAnimals.length < 5) {
+                wildAnimals.push(new WildAnimal());
+            }
+            
+            // Рисование объектов
+            eggs.forEach(egg => egg.draw());
+            chickens.forEach(chicken => chicken.draw());
+            dogs.forEach(dog => dog.draw());
+            wildAnimals.forEach(animal => animal.draw());
+            
+            // Обновление UI
+            document.getElementById('chickenCount').textContent = chickens.length;
+            document.getElementById('dogCount').textContent = dogs.length;
+            document.getElementById('eggCount').textContent = eggs.length;
+            document.getElementById('foodCount').textContent = Math.floor(food);
+            
+            // Звуки (симуляция через консоль)
+            if (sounds.chicken.count > 0) {
+                sounds.chicken.count = 0;
+            }
+            if (sounds.dog.count > 0) {
+                sounds.dog.count = 0;
+            }
+            if (sounds.attack.count > 0) {
+                sounds.attack.count = 0;
+            }
+            
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Инициализация
+        for (let i = 0; i < 3; i++) {
+            addChicken();
+        }
+        
+        // Запуск игры
+        gameLoop();
+        
+        // Автокормление при клике
+        canvas.addEventListener('click', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            if (food >= 10) {
+                food -= 10;
+                for (let i = 0; i < 10; i++) {
+                    foodParticles.push(new FoodParticle(x, y));
+                }
+            }
+        });
+    </script>
+</body>
+</html>
